@@ -57,12 +57,17 @@ export function useRoam() {
     const query = `[:find ?uid ?str :where [?b :block/uid ?uid] [?b :block/string ?str] [(clojure.string/includes? ?str "## Timeline")]]`;
     try {
       const result = await bffFetch('q', { query });
+      console.log('findTimelineUid result:', JSON.stringify(result));
       if (result && result.length > 0) {
         // Return the first matching UID
-        return result[0][0];
+        const uid = result[0][0];
+        console.log('Found Timeline UID:', uid);
+        return uid;
       }
+      console.log('No Timeline block found');
       return null;
-    } catch {
+    } catch (err) {
+      console.error('findTimelineUid error:', err);
       return null;
     }
   }, [bffFetch]);
@@ -112,32 +117,41 @@ export function useRoam() {
 
   // Get the end time of the last entry under Timeline (internal, takes uid as param)
   const getLastEntryEndTimeByUid = useCallback(async (timelineUid: string): Promise<string | null> => {
-    // Query for child blocks under Timeline using exact uid match
-    const query = `[:find (max ?order) ?child :where
+    // Query for all child blocks under Timeline using exact uid match
+    // Return the block with highest order (last one)
+    const query = `[:find (pull ?child [:block/string :block/order]) :where
       [?b :block/uid "${timelineUid}"]
-      [?b :block/children ?child]
-      [?child :block/order ?order]]`;
+      [?b :block/children ?child]]`;
 
     try {
       const result = await bffFetch('q', { query });
-      if (result && result.length > 0 && result[0] && result[0][1]) {
-        // Get the last block's uid
-        const lastChildUid = result[0][1];
-        // Pull the full block content
-        const blockQuery = `[:find ?str :where [?b :block/uid "${lastChildUid}"] [?b :block/string ?str]]`;
-        const blockResult = await bffFetch('q', { query: blockQuery });
+      console.log('Query result:', JSON.stringify(result));
 
-        if (blockResult && blockResult[0] && blockResult[0][0]) {
-          const str = blockResult[0][0];
+      if (result && result.length > 0 && result[0]) {
+        const blocks = result[0] as Array<{ ':block/string'?: string; ':block/order'?: number }>;
+        // Find the block with highest order (last)
+        let lastBlock = blocks[0];
+        for (const block of blocks) {
+          const blockOrder = block[':block/order'] ?? 0;
+          const lastOrder = lastBlock[':block/order'] ?? 0;
+          if (blockOrder > lastOrder) {
+            lastBlock = block;
+          }
+        }
+
+        const str = lastBlock[':block/string'];
+        if (str) {
           // Match format: "- startTime - endTime （duration） content"
           const match = str.match(/-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
           if (match && match[2]) {
+            console.log('Found end time:', match[2]);
             return match[2];
           }
         }
       }
       return null;
-    } catch {
+    } catch (err) {
+      console.error('Query error:', err);
       return null;
     }
   }, [bffFetch]);
