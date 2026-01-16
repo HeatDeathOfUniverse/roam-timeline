@@ -27,9 +27,11 @@ app.post('/api/roam/:graphName', async (req, res) => {
   console.log('>>> API ROUTE HIT <<<');
   console.log('graphName:', req.params.graphName);
   console.log('action:', req.body.action);
+  console.log('data:', JSON.stringify(req.body).substring(0, 200));
 
   const { graphName } = req.params;
   const { action, ...data } = req.body;
+  const isQuery = action === 'datalog';
 
   const body = JSON.stringify({ action, ...data });
   const headers = {
@@ -39,10 +41,16 @@ app.post('/api/roam/:graphName', async (req, res) => {
     'Content-Length': Buffer.byteLength(body)
   };
 
-  const urlsToTry = [
-    `https://api.roamresearch.com/api/graph/${graphName}`,
-    ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)
-  ];
+  // All operations go through /write endpoint on peers
+  // Main API handles queries at root, writes get redirected
+  const mainUrl = `https://api.roamresearch.com/api/graph/${graphName}`;
+  const peerUrls = PEERS.map(p => `https://${p}/api/graph/${graphName}/write`);
+
+  // For queries, only try main API (no /write)
+  // For mutations, try main API then peers with /write
+  const urlsToTry = isQuery ? [mainUrl] : [mainUrl, ...peerUrls];
+
+  console.log('action:', action, 'isQuery:', isQuery, 'urls:', urlsToTry);
 
   for (const currentUrl of urlsToTry) {
     const url = new URL(currentUrl);
@@ -94,7 +102,17 @@ app.post('/api/roam/:graphName', async (req, res) => {
 
       if (response.status === 200) {
         console.log('  SUCCESS!');
-        res.status(200).json({ success: true });
+        // For queries, return the actual data; for mutations, just return success
+        if (isQuery) {
+          try {
+            const parsedData = JSON.parse(response.data);
+            res.status(200).json(parsedData);
+          } catch {
+            res.status(200).json({ data: response.data });
+          }
+        } else {
+          res.status(200).json({ success: true });
+        }
         return;
       }
 

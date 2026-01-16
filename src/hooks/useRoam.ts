@@ -64,7 +64,7 @@ export function useRoam() {
       [(clojure.string/includes? ?str "Timeline")]]`;
 
     try {
-      const result = await bffFetch('q', { query });
+      const result = await bffFetch('datalog', { query });
       console.log('findTimelineUid result:', JSON.stringify(result));
       if (result && result.length > 0) {
         // Return the first matching UID
@@ -132,7 +132,7 @@ export function useRoam() {
       [?b :block/children ?child]]`;
 
     try {
-      const result = await bffFetch('q', { query });
+      const result = await bffFetch('datalog', { query });
       console.log('getLastEntry query result:', JSON.stringify(result));
 
       if (result && result.length > 0 && result[0]) {
