@@ -11,12 +11,14 @@ export default async function handler(
   request: VercelRequest,
   response: VercelResponse
 ) {
+  // CORS headers
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  response.setHeader('Access-Control-Max-Age', '86400');
 
   if (request.method === 'OPTIONS') {
-    return response.status(200).end();
+    return response.status(204).end();
   }
 
   if (request.method !== 'POST') {
@@ -32,7 +34,8 @@ export default async function handler(
   const apiToken = process.env.ROAM_API_TOKEN;
 
   if (!apiToken) {
-    return response.status(500).json({ error: 'Server configuration error' });
+    console.error('ROAM_API_TOKEN not configured');
+    return response.status(500).json({ error: 'Server configuration error: ROAM_API_TOKEN missing' });
   }
 
   const { action, ...data } = request.body as { action: string; [key: string]: unknown };
@@ -55,6 +58,8 @@ export default async function handler(
     ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)
   ];
 
+  let lastError: string = '';
+
   for (const currentUrl of urlsToTry) {
     try {
       const roamResponse = await fetch(currentUrl, {
@@ -63,6 +68,7 @@ export default async function handler(
         body: body,
       });
 
+      // Follow 308 redirect
       if (roamResponse.status === 308) {
         const location = roamResponse.headers.get('location');
         if (location) {
@@ -71,8 +77,11 @@ export default async function handler(
             headers: headers,
             body: body,
           });
-          // Return success even if body is empty
-          return response.status(200).json({ success: true });
+          if (redirectResponse.ok) {
+            return response.status(200).json({ success: true });
+          }
+          lastError = `Redirect failed: ${redirectResponse.status}`;
+          continue;
         }
       }
 
@@ -85,14 +94,16 @@ export default async function handler(
       }
 
       const errorText = await roamResponse.text();
+      lastError = errorText;
       return response.status(roamResponse.status).json({
         error: `Roam API error: ${errorText}`,
       });
 
     } catch (error) {
+      lastError = error instanceof Error ? error.message : 'Unknown error';
       continue;
     }
   }
 
-  return response.status(500).json({ error: 'All Roam endpoints failed' });
+  return response.status(500).json({ error: `All Roam endpoints failed: ${lastError}` });
 }
