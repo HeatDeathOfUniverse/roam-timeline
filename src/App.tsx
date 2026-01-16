@@ -7,28 +7,38 @@ import { FormatButton } from './components/FormatButton';
 import { generatePageTitle } from './utils/formatter';
 import type { JournalEntry } from './types';
 
+const LOCAL_STORAGE_KEY = 'roam-journal-entries';
+
+function loadStoredEntries(): JournalEntry[] {
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch {
+    console.error('Failed to load entries from localStorage');
+  }
+  return [];
+}
+
 function App() {
-  const { isConfigured, addEntry, isLoading, getLastEntryEndTime } = useRoam();
+  const { isConfigured, addEntry, isLoading } = useRoam();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'journal' | 'settings'>('journal');
   const [initialStartTime, setInitialStartTime] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
 
-  // Fetch last entry end time on mount
+  // Load entries from localStorage on mount
   useEffect(() => {
-    const fetchLastEntry = async () => {
-      const lastEndTime = await getLastEntryEndTime();
-      // Only set initialStartTime if we found a previous entry
-      if (lastEndTime) {
-        setInitialStartTime(lastEndTime);
-      }
-      // If no previous entry, leave initialStartTime empty - user will manually enter
-    };
+    const storedEntries = loadStoredEntries();
+    setEntries(storedEntries);
 
-    if (isConfigured) {
-      fetchLastEntry();
+    // Get last entry's end time
+    if (storedEntries.length > 0) {
+      const lastEntry = storedEntries[storedEntries.length - 1];
+      setInitialStartTime(lastEntry.endTime);
     }
-  }, [isConfigured, getLastEntryEndTime]);
+  }, []);
 
   // Update current time every second
   useEffect(() => {
@@ -52,7 +62,18 @@ function App() {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
-    setEntries([...entries, newEntry]);
+
+    // Update local state and localStorage
+    const updatedEntries = [...entries, newEntry];
+    setEntries(updatedEntries);
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedEntries));
+    } catch {
+      console.error('Failed to save entries to localStorage');
+    }
+
+    // Update initial start time for next entry
+    setInitialStartTime(newEntry.endTime);
 
     // 同步到 Roam
     const success = await addEntry({
