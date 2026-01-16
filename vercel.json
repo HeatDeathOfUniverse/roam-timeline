@@ -3,18 +3,10 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "methods": ["GET", "POST", "OPTIONS"],
-      "headers": {
-        "Access-Control-Allow-Origin": "*"
-      }
-    }
-  ],
+  "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/:path((?!api/).*)",
       "destination": "/index.html"
     }
   ],
@@ -25,6 +17,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
         }
       ]
     }
