@@ -52,19 +52,55 @@ export function useRoam() {
     return response.json();
   }, [config]);
 
-  const createBlock = useCallback(async (pageTitle: string, blockString: string, parentUid?: string) => {
+  // Query to find Timeline block UID
+  const findTimelineUid = useCallback(async (): Promise<string | null> => {
+    const query = `[:find ?uid ?str :where [?b :block/uid ?uid] [?b :block/string ?str] [(clojure.string/includes? ?str "## Timeline")]]`;
+    try {
+      const result = await bffFetch('q', { query });
+      if (result && result.length > 0) {
+        // Return the first matching UID
+        return result[0][0];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [bffFetch]);
+
+  // Create a block and return its UID
+  const createBlockWithUid = useCallback(async (pageTitle: string, blockString: string) => {
+    const uid = `timeline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await bffFetch('create-block', {
+      location: { 'page-title': pageTitle, order: 'last' },
+      block: { string: blockString, uid },
+    });
+    return uid;
+  }, [bffFetch]);
+
+  const addEntry = useCallback(async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
     setIsLoading(true);
     setError(null);
     try {
+      const pageTitle = generatePageTitle();
+      const formattedText = formatTimeForRoam(entry as JournalEntry);
+
+      // Try to find Timeline block on today's page
+      let timelineUid = await findTimelineUid();
+
+      // If not found, create "## Timeline" block on today's page
+      if (!timelineUid) {
+        timelineUid = await createBlockWithUid(pageTitle, '## Timeline');
+      }
+
+      // Insert the entry under Timeline block
       await bffFetch('create-block', {
-        location: parentUid
-          ? { 'parent-uid': parentUid }
-          : { 'page-title': pageTitle, order: 'last' },
+        location: { 'parent-uid': timelineUid, order: 'last' },
         block: {
-          string: blockString,
-          uid: `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          string: formattedText,
+          uid: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         },
       });
+
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -72,13 +108,7 @@ export function useRoam() {
     } finally {
       setIsLoading(false);
     }
-  }, [bffFetch]);
-
-  const addEntry = useCallback(async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
-    const pageTitle = generatePageTitle();
-    const formattedText = formatTimeForRoam(entry as JournalEntry);
-    return createBlock(pageTitle, formattedText);
-  }, [createBlock]);
+  }, [bffFetch, findTimelineUid, createBlockWithUid]);
 
   const formatTodayPage = useCallback(async () => {
     setIsLoading(true);
