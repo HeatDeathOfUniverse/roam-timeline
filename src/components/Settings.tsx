@@ -10,16 +10,16 @@ export function Settings() {
   useEffect(() => {
     const savedConfig = localStorage.getItem('roamConfig');
     if (savedConfig) {
-      const { apiToken: token, graphName: name } = JSON.parse(savedConfig);
-      setApiToken(token);
+      const { graphName: name } = JSON.parse(savedConfig);
       setGraphName(name);
     }
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (apiToken && graphName) {
-      saveConfig(apiToken, graphName);
+    if (graphName) {
+      // Token is not stored - it's on the server
+      saveConfig(apiToken || 'placeholder', graphName);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }
@@ -31,19 +31,23 @@ export function Settings() {
 
       {!isConfigured ? (
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="p-3 bg-blue-900/30 rounded border border-blue-700">
+            <p className="text-blue-400 text-sm">
+              API Token 已配置在服务器端，仅需填写 Graph 名称
+            </p>
+          </div>
           <div>
-            <label className="block text-sm font-medium mb-1">API Token</label>
+            <label className="block text-sm font-medium mb-1">API Token (仅用于验证)</label>
             <input
               type="password"
               value={apiToken}
               onChange={(e) => setApiToken(e.target.value)}
-              placeholder="roam-graph-token-xxx"
+              placeholder="输入任意值用于验证，不保存"
               className="w-full p-2 border rounded bg-gray-800 text-white"
-              required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Graph 名称</label>
+            <label className="block text-sm font-medium mb-1">Graph 名称 *</label>
             <input
               type="text"
               value={graphName}
@@ -64,7 +68,9 @@ export function Settings() {
       ) : (
         <div className="space-y-4">
           <div className="p-3 bg-green-900/30 rounded border border-green-700">
-            <p className="text-green-400">✓ 已配置</p>
+            <p className="text-green-400">
+              ✓ 已配置: {JSON.parse(localStorage.getItem('roamConfig') || '{}').graphName}
+            </p>
           </div>
           <button
             onClick={clearConfig}

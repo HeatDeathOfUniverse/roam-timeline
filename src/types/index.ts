@@ -9,7 +9,6 @@ export interface JournalEntry {
 }
 
 export interface RoamConfig {
-  apiToken: string;
   graphName: string;
 }
 

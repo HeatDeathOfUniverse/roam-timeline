@@ -2,19 +2,25 @@ import { useState, useCallback } from 'react';
 import type { JournalEntry, RoamConfig } from '../types';
 import { formatTimeForRoam, generatePageTitle } from '../utils/formatter';
 
-const ROAM_API_BASE = 'https://api.roamresearch.com/api/graph';
+const BFF_API_BASE = '/api/roam';
 
 export function useRoam() {
   const [config, setConfig] = useState<RoamConfig | null>(() => {
     const saved = localStorage.getItem('roamConfig');
-    return saved ? JSON.parse(saved) : null;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Only keep graphName, token is stored server-side
+      return { graphName: parsed.graphName };
+    }
+    return null;
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const saveConfig = useCallback((apiToken: string, graphName: string) => {
-    const newConfig = { apiToken, graphName };
+  const saveConfig = useCallback((_apiToken: string, graphName: string) => {
+    // Token is stored server-side, only graphName in localStorage
+    const newConfig = { graphName };
     localStorage.setItem('roamConfig', JSON.stringify(newConfig));
     setConfig(newConfig);
   }, []);
@@ -24,13 +30,12 @@ export function useRoam() {
     setConfig(null);
   }, []);
 
-  const roamFetch = useCallback(async (action: string, data: Record<string, unknown>) => {
+  const bffFetch = useCallback(async (action: string, data: Record<string, unknown>) => {
     if (!config) throw new Error('Roam not configured');
 
-    const response = await fetch(`${ROAM_API_BASE}/${config.graphName}`, {
+    const response = await fetch(`${BFF_API_BASE}/${config.graphName}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${config.apiToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -41,7 +46,7 @@ export function useRoam() {
 
     if (!response.ok) {
       const err = await response.text();
-      throw new Error(`Roam API error: ${err}`);
+      throw new Error(`API error: ${err}`);
     }
 
     return response.json();
@@ -51,10 +56,14 @@ export function useRoam() {
     setIsLoading(true);
     setError(null);
     try {
-      await roamFetch('createBlock', {
-        pageTitle,
-        blockString,
-        parentUid,
+      await bffFetch('create-block', {
+        location: parentUid
+          ? { 'parent-uid': parentUid }
+          : { 'page-title': pageTitle, order: 'last' },
+        block: {
+          string: blockString,
+          uid: `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        },
       });
       return true;
     } catch (err) {
@@ -63,7 +72,7 @@ export function useRoam() {
     } finally {
       setIsLoading(false);
     }
-  }, [roamFetch]);
+  }, [bffFetch]);
 
   const addEntry = useCallback(async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
     const pageTitle = generatePageTitle();
@@ -75,7 +84,7 @@ export function useRoam() {
     setIsLoading(true);
     setError(null);
     try {
-      await roamFetch('formatTodayPage', {});
+      await bffFetch('formatTodayPage', {});
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -83,7 +92,7 @@ export function useRoam() {
     } finally {
       setIsLoading(false);
     }
-  }, [roamFetch]);
+  }, [bffFetch]);
 
   return {
     config,
