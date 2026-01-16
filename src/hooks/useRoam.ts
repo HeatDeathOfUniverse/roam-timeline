@@ -110,6 +110,34 @@ export function useRoam() {
     }
   }, [bffFetch, findTimelineUid, createBlockWithUid]);
 
+  // Get the end time of the last entry under Timeline
+  const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
+    const timelineUid = await findTimelineUid();
+    if (!timelineUid) return null;
+
+    // Query for child blocks under Timeline
+    const query = `[:find (pull ?child [:block/string :block/uid :block/order]) :where [?b :block/uid "${timelineUid}"] [?b :block/children ?child]]`;
+
+    try {
+      const result = await bffFetch('q', { query });
+      if (result && result.length > 0 && result[0] && result[0][0]) {
+        const blocks = result[0] as Array<{ ':block/string': string }>;
+        // Parse the last block's string to extract end time
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const str = blocks[i][':block/string'];
+          // Match format: "- startTime - endTime （duration） content"
+          const match = str.match(/-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+          if (match && match[2]) {
+            return match[2];
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [bffFetch, findTimelineUid]);
+
   const formatTodayPage = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -133,5 +161,6 @@ export function useRoam() {
     clearConfig,
     addEntry,
     formatTodayPage,
+    getLastEntryEndTime,
   };
 }

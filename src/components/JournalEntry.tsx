@@ -1,16 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { JournalEntry as JournalEntryType } from '../types';
 import { formatDuration } from '../utils/formatter';
 
 interface Props {
   onSubmit: (entry: Omit<JournalEntryType, 'id' | 'createdAt'>) => void;
   isLoading: boolean;
+  initialStartTime?: string;
+  currentTime?: string;
 }
 
-export function JournalEntryForm({ onSubmit, isLoading }: Props) {
+export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, currentTime }: Props) {
   const [content, setContent] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+
+  // Set initial start time when it becomes available
+  useEffect(() => {
+    if (initialStartTime && !startTime) {
+      setStartTime(initialStartTime);
+    }
+  }, [initialStartTime]);
+
+  // Update end time when currentTime changes (for live ticking)
+  useEffect(() => {
+    if (currentTime) {
+      setEndTime(currentTime);
+    }
+  }, [currentTime]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,8 +35,7 @@ export function JournalEntryForm({ onSubmit, isLoading }: Props) {
     const duration = formatDuration(startTime, endTime);
     onSubmit({ content, startTime, endTime, duration });
     setContent('');
-    setStartTime('');
-    setEndTime('');
+    // Keep startTime and endTime for continuous entry
   };
 
   return (

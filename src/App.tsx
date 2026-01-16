@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRoam } from './hooks/useRoam';
 import { JournalEntryForm } from './components/JournalEntry';
 import { Timeline } from './components/Timeline';
@@ -8,9 +8,44 @@ import { generatePageTitle } from './utils/formatter';
 import type { JournalEntry } from './types';
 
 function App() {
-  const { isConfigured, addEntry, isLoading } = useRoam();
+  const { isConfigured, addEntry, isLoading, getLastEntryEndTime } = useRoam();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'journal' | 'settings'>('journal');
+  const [initialStartTime, setInitialStartTime] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState<string>('');
+
+  // Fetch last entry end time on mount
+  useEffect(() => {
+    const fetchLastEntry = async () => {
+      const lastEndTime = await getLastEntryEndTime();
+      if (lastEndTime) {
+        setInitialStartTime(lastEndTime);
+      } else {
+        // If no previous entry, default to current time
+        setInitialStartTime(getCurrentTimeString());
+      }
+    };
+
+    if (isConfigured) {
+      fetchLastEntry();
+    }
+  }, [isConfigured, getLastEntryEndTime]);
+
+  // Update current time every second
+  useEffect(() => {
+    setCurrentTime(getCurrentTimeString());
+
+    const interval = setInterval(() => {
+      setCurrentTime(getCurrentTimeString());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  function getCurrentTimeString(): string {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  }
 
   const handleAddEntry = async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
     const newEntry: JournalEntry = {
@@ -67,7 +102,12 @@ function App() {
           <div className="space-y-4">
             {isConfigured ? (
               <>
-                <JournalEntryForm onSubmit={handleAddEntry} isLoading={isLoading} />
+                <JournalEntryForm
+                  onSubmit={handleAddEntry}
+                  isLoading={isLoading}
+                  initialStartTime={initialStartTime}
+                  currentTime={currentTime}
+                />
 
                 <div className="mt-6">
                   <Timeline entries={entries} />
