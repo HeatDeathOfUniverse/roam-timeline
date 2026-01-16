@@ -46,11 +46,11 @@ export default async function handler(
 
   const body = JSON.stringify({ action, ...data });
 
-  const headers = {
+  const headers: Record<string, string> = {
     'Authorization': `Bearer ${apiToken}`,
     'x-authorization': `Bearer ${apiToken}`,
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body)
+    'Content-Length': String(Buffer.byteLength(body)),
   };
 
   const urlsToTry = [
@@ -64,8 +64,8 @@ export default async function handler(
     try {
       const roamResponse = await fetch(currentUrl, {
         method: 'POST',
-        headers: headers,
-        body: body,
+        headers,
+        body,
       });
 
       // Follow 308 redirect
@@ -74,8 +74,8 @@ export default async function handler(
         if (location) {
           const redirectResponse = await fetch(location, {
             method: 'POST',
-            headers: headers,
-            body: body,
+            headers,
+            body,
           });
           if (redirectResponse.ok) {
             return response.status(200).json({ success: true });
