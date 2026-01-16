@@ -18,12 +18,11 @@ function App() {
   useEffect(() => {
     const fetchLastEntry = async () => {
       const lastEndTime = await getLastEntryEndTime();
+      // Only set initialStartTime if we found a previous entry
       if (lastEndTime) {
         setInitialStartTime(lastEndTime);
-      } else {
-        // If no previous entry, default to current time
-        setInitialStartTime(getCurrentTimeString());
       }
+      // If no previous entry, leave initialStartTime empty - user will manually enter
     };
 
     if (isConfigured) {

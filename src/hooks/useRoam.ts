@@ -110,21 +110,25 @@ export function useRoam() {
     }
   }, [bffFetch, findTimelineUid, createBlockWithUid]);
 
-  // Get the end time of the last entry under Timeline
-  const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
-    const timelineUid = await findTimelineUid();
-    if (!timelineUid) return null;
-
-    // Query for child blocks under Timeline
-    const query = `[:find (pull ?child [:block/string :block/uid :block/order]) :where [?b :block/uid "${timelineUid}"] [?b :block/children ?child]]`;
+  // Get the end time of the last entry under Timeline (internal, takes uid as param)
+  const getLastEntryEndTimeByUid = useCallback(async (timelineUid: string): Promise<string | null> => {
+    // Query for child blocks under Timeline using exact uid match
+    const query = `[:find (max ?order) ?child :where
+      [?b :block/uid "${timelineUid}"]
+      [?b :block/children ?child]
+      [?child :block/order ?order]]`;
 
     try {
       const result = await bffFetch('q', { query });
-      if (result && result.length > 0 && result[0] && result[0][0]) {
-        const blocks = result[0] as Array<{ ':block/string': string }>;
-        // Parse the last block's string to extract end time
-        for (let i = blocks.length - 1; i >= 0; i--) {
-          const str = blocks[i][':block/string'];
+      if (result && result.length > 0 && result[0] && result[0][1]) {
+        // Get the last block's uid
+        const lastChildUid = result[0][1];
+        // Pull the full block content
+        const blockQuery = `[:find ?str :where [?b :block/uid "${lastChildUid}"] [?b :block/string ?str]]`;
+        const blockResult = await bffFetch('q', { query: blockQuery });
+
+        if (blockResult && blockResult[0] && blockResult[0][0]) {
+          const str = blockResult[0][0];
           // Match format: "- startTime - endTime （duration） content"
           const match = str.match(/-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
           if (match && match[2]) {
@@ -136,7 +140,14 @@ export function useRoam() {
     } catch {
       return null;
     }
-  }, [bffFetch, findTimelineUid]);
+  }, [bffFetch]);
+
+  // Get the end time of the last entry under Timeline (public API)
+  const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
+    const timelineUid = await findTimelineUid();
+    if (!timelineUid) return null;
+    return getLastEntryEndTimeByUid(timelineUid);
+  }, [findTimelineUid, getLastEntryEndTimeByUid]);
 
   const formatTodayPage = useCallback(async () => {
     setIsLoading(true);
