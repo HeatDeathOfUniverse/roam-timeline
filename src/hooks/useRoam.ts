@@ -52,44 +52,6 @@ export function useRoam() {
     return response.json();
   }, [config]);
 
-  // Query to find Timeline block UID
-  const findTimelineUid = useCallback(async (): Promise<string | null> => {
-    // Search for "Timeline" in today's page blocks
-    const query = `[:find ?uid ?str :where
-      [?p :node/title ?title]
-      [(clojure.string/includes? ?title "January")]
-      [?b :block/page ?p]
-      [?b :block/uid ?uid]
-      [?b :block/string ?str]
-      [(clojure.string/includes? ?str "Timeline")]]`;
-
-    try {
-      const result = await bffFetch('datalog', { query });
-      console.log('findTimelineUid result:', JSON.stringify(result));
-      if (result && result.length > 0) {
-        // Return the first matching UID
-        const uid = result[0][0];
-        console.log('Found Timeline UID:', uid, 'String:', result[0][1]);
-        return uid;
-      }
-      console.log('No Timeline block found');
-      return null;
-    } catch (err) {
-      console.error('findTimelineUid error:', err);
-      return null;
-    }
-  }, [bffFetch]);
-
-  // Create a block and return its UID
-  const createBlockWithUid = useCallback(async (pageTitle: string, blockString: string) => {
-    const uid = `timeline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await bffFetch('create-block', {
-      location: { 'page-title': pageTitle, order: 'last' },
-      block: { string: blockString, uid },
-    });
-    return uid;
-  }, [bffFetch]);
-
   const addEntry = useCallback(async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
     setIsLoading(true);
     setError(null);
@@ -97,12 +59,17 @@ export function useRoam() {
       const pageTitle = generatePageTitle();
       const formattedText = formatTimeForRoam(entry as JournalEntry);
 
-      // Try to find Timeline block on today's page
-      let timelineUid = await findTimelineUid();
+      // Fixed UID for Timeline block - creates once, reused thereafter
+      const timelineUid = 'timeline-block-main';
 
-      // If not found, create "Timeline" block on today's page
-      if (!timelineUid) {
-        timelineUid = await createBlockWithUid(pageTitle, 'Timeline');
+      // Try to create Timeline block if it doesn't exist (idempotent)
+      try {
+        await bffFetch('create-block', {
+          location: { 'page-title': pageTitle, order: 'last' },
+          block: { string: 'Timeline', uid: timelineUid },
+        });
+      } catch {
+        // Timeline block may already exist, ignore error
       }
 
       // Insert the entry under Timeline block
@@ -121,56 +88,7 @@ export function useRoam() {
     } finally {
       setIsLoading(false);
     }
-  }, [bffFetch, findTimelineUid, createBlockWithUid]);
-
-  // Get the end time of the last entry under Timeline (internal, takes uid as param)
-  const getLastEntryEndTimeByUid = useCallback(async (timelineUid: string): Promise<string | null> => {
-    // Query for all child blocks under Timeline using exact uid match
-    // Return the block with highest order (last one)
-    const query = `[:find (pull ?child [:block/string :block/order]) :where
-      [?b :block/uid "${timelineUid}"]
-      [?b :block/children ?child]]`;
-
-    try {
-      const result = await bffFetch('datalog', { query });
-      console.log('getLastEntry query result:', JSON.stringify(result));
-
-      if (result && result.length > 0 && result[0]) {
-        const blocks = result[0] as Array<{ ':block/string'?: string; ':block/order'?: number }>;
-        // Find the block with highest order (last)
-        let lastBlock = blocks[0];
-        for (const block of blocks) {
-          const blockOrder = block[':block/order'] ?? 0;
-          const lastOrder = lastBlock[':block/order'] ?? 0;
-          if (blockOrder > lastOrder) {
-            lastBlock = block;
-          }
-        }
-
-        const str = lastBlock[':block/string'];
-        console.log('Last block string:', str);
-        if (str) {
-          // Match format: "- startTime - endTime （duration） content"
-          const match = str.match(/-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
-          if (match && match[2]) {
-            console.log('Found end time:', match[2]);
-            return match[2];
-          }
-        }
-      }
-      return null;
-    } catch (err) {
-      console.error('Query error:', err);
-      return null;
-    }
   }, [bffFetch]);
-
-  // Get the end time of the last entry under Timeline (public API)
-  const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
-    const timelineUid = await findTimelineUid();
-    if (!timelineUid) return null;
-    return getLastEntryEndTimeByUid(timelineUid);
-  }, [findTimelineUid, getLastEntryEndTimeByUid]);
 
   const formatTodayPage = useCallback(async () => {
     setIsLoading(true);
@@ -195,6 +113,5 @@ export function useRoam() {
     clearConfig,
     addEntry,
     formatTodayPage,
-    getLastEntryEndTime,
   };
 }
