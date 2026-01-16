@@ -54,14 +54,22 @@ export function useRoam() {
 
   // Query to find Timeline block UID
   const findTimelineUid = useCallback(async (): Promise<string | null> => {
-    const query = `[:find ?uid ?str :where [?b :block/uid ?uid] [?b :block/string ?str] [(clojure.string/includes? ?str "## Timeline")]]`;
+    // Search for "Timeline" in today's page blocks
+    const query = `[:find ?uid ?str :where
+      [?p :node/title ?title]
+      [(clojure.string/includes? ?title "January")]
+      [?b :block/page ?p]
+      [?b :block/uid ?uid]
+      [?b :block/string ?str]
+      [(clojure.string/includes? ?str "Timeline")]]`;
+
     try {
       const result = await bffFetch('q', { query });
       console.log('findTimelineUid result:', JSON.stringify(result));
       if (result && result.length > 0) {
         // Return the first matching UID
         const uid = result[0][0];
-        console.log('Found Timeline UID:', uid);
+        console.log('Found Timeline UID:', uid, 'String:', result[0][1]);
         return uid;
       }
       console.log('No Timeline block found');
@@ -92,9 +100,9 @@ export function useRoam() {
       // Try to find Timeline block on today's page
       let timelineUid = await findTimelineUid();
 
-      // If not found, create "## Timeline" block on today's page
+      // If not found, create "Timeline" block on today's page
       if (!timelineUid) {
-        timelineUid = await createBlockWithUid(pageTitle, '## Timeline');
+        timelineUid = await createBlockWithUid(pageTitle, 'Timeline');
       }
 
       // Insert the entry under Timeline block
@@ -125,7 +133,7 @@ export function useRoam() {
 
     try {
       const result = await bffFetch('q', { query });
-      console.log('Query result:', JSON.stringify(result));
+      console.log('getLastEntry query result:', JSON.stringify(result));
 
       if (result && result.length > 0 && result[0]) {
         const blocks = result[0] as Array<{ ':block/string'?: string; ':block/order'?: number }>;
@@ -140,6 +148,7 @@ export function useRoam() {
         }
 
         const str = lastBlock[':block/string'];
+        console.log('Last block string:', str);
         if (str) {
           // Match format: "- startTime - endTime （duration） content"
           const match = str.match(/-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
