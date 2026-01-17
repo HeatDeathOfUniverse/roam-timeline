@@ -168,26 +168,38 @@ class RoamClient:
         """Delete a block."""
         try:
             print(f"  [API] Deleting block: {block_uid}")
-            result = self.write("deleteBlock", block={"uid": block_uid})
+            result = self.write("delete-block", block={"uid": block_uid})
             print(f"  [API] Delete result: {result}")
             return True
         except Exception as e:
             print(f"  [API] Delete error: {e}")
             return False
 
-    def create_block(self, parent_uid: str, string: str, order: int = "last") -> Optional[str]:
-        """Create a new block under a parent."""
+    def batch_actions(self, actions: list[dict]) -> bool:
+        """Execute multiple actions in a single request to avoid rate limiting."""
+        print(f"  [BATCH] Executing {len(actions)} actions in batch...")
         try:
-            print(f"  [API] Creating block under {parent_uid}: {string[:60]}...")
-            result = self.write(
-                "create-block",
-                location={"parent-uid": parent_uid, "order": order},
-                block={"string": string, "uid": f"entry-{datetime.now().timestamp()}"},
-            )
-            print(f"  [API] Create result: {result}")
+            # Convert to Roam batch format
+            roam_actions = []
+            for action in actions:
+                action_type = action.get("type")
+                if action_type == "delete":
+                    roam_actions.append({
+                        "action": "delete-block",
+                        "block": {"uid": action.get("uid")}
+                    })
+                elif action_type == "create":
+                    roam_actions.append({
+                        "action": "create-block",
+                        "location": {"parent-uid": action.get("parent_uid"), "order": "last"},
+                        "block": {"string": action.get("string")}
+                    })
+
+            result = self.write("batch-actions", actions=roam_actions)
+            print(f"  [BATCH] Result: {result}")
             return True
         except Exception as e:
-            print(f"  [API] Create error: {e}")
+            print(f"  [BATCH] Error: {e}")
             return False
 
 
@@ -437,24 +449,29 @@ Let's format the timeline:"""
             for i, action in enumerate(actions):
                 print(f"  [{i}] {action}")
 
-            # Execute actions - delete first, then create
-            print(f"\nExecuting {len(actions)} actions...")
+            # Use batch actions to avoid rate limiting
+            print(f"\nExecuting {len(actions)} actions via batch...")
             deletes = [a for a in actions if a.get("type") == "delete"]
             creates = [a for a in actions if a.get("type") == "create"]
 
-            # Delete first
-            for action in deletes:
-                uid = action.get("uid")
-                if uid:
-                    print(f"  Deleting: {uid}")
-                    self.roam.delete_block(uid)
+            # Convert deletes to batch format
+            delete_actions = [{"type": "delete", "uid": a["uid"]} for a in deletes]
 
-            # Then create - all under Timeline block directly
-            for action in creates:
-                string = action.get("string")
-                if string:
-                    print(f"  Creating: {string[:50]}...")
-                    self.roam.create_block(timeline_uid, string)
+            # Convert creates to batch format
+            create_actions = [
+                {"type": "create", "parent_uid": timeline_uid, "string": a["string"]}
+                for a in creates
+            ]
+
+            # Execute deletes in batch
+            if delete_actions:
+                print(f"  Deleting {len(delete_actions)} entries...")
+                self.roam.batch_actions(delete_actions)
+
+            # Execute creates in batch
+            if create_actions:
+                print(f"  Creating {len(create_actions)} entries...")
+                self.roam.batch_actions(create_actions)
 
             print("Done!")
             return True
