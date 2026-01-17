@@ -477,23 +477,41 @@ Let's format both timelines:"""
 
             print(f"[DEBUG] Response type: {type(response)}")
             print(f"[DEBUG] Response id: {getattr(response, 'id', 'N/A')}")
-            print(f"[DEBUG] Response content type: {type(response.content)}")
-            print(f"[DEBUG] Response content length: {len(response.content)}")
 
-            # In Anthropic SDK v0.76.0+, response.content is a list of ContentBlock objects
+            # Handle different SDK response formats
             response_text = ""
-            for i, block in enumerate(response.content):
-                print(f"[DEBUG] Block {i}: type={type(block)}, attrs={dir(block)[:5]}")
-                if hasattr(block, 'text'):
-                    response_text = block.text
-                    print(f"[DEBUG] Found text: {response_text[:100]}...")
-                    break
-                elif hasattr(block, 'type'):
-                    print(f"[DEBUG] Block type: {block.type}")
+
+            if hasattr(response, 'content'):
+                print(f"[DEBUG] Response content type: {type(response.content)}")
+                print(f"[DEBUG] Response content length: {len(response.content)}")
+
+                # Try to extract text from content
+                for i, block in enumerate(response.content):
+                    block_type = type(block)
+                    print(f"[DEBUG] Block {i}: {block_type}")
+
+                    # Handle different block types
+                    if hasattr(block, 'text'):
+                        response_text = block.text
+                        print(f"[DEBUG] Found text attr: {response_text[:100] if response_text else 'EMPTY'}...")
+                        break
+                    elif hasattr(block, 'type'):
+                        # Handle ThinkingBlock, etc.
+                        if block.type == 'text':
+                            response_text = getattr(block, 'text', '') or ''
+                            print(f"[DEBUG] Found text type block: {response_text[:100] if response_text else 'EMPTY'}...")
+                            break
+                        elif block.type == 'thinking':
+                            print(f"[DEBUG] Skipping thinking block")
+                        else:
+                            print(f"[DEBUG] Unknown block type: {block.type}")
+            elif hasattr(response, 'text'):
+                # Old SDK format
+                response_text = response.text
+                print(f"[DEBUG] Using response.text directly")
 
             if not response_text:
                 print("[ERROR] No text content in response")
-                print(f"[DEBUG] Full response: {response}")
                 return False
 
             print(f"\nClaude response:\n{response_text}")
