@@ -150,23 +150,26 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
     );
   };
 
-  const handleSelect = (category: Category) => {
+  const handleSelect = (category: Category, e: React.MouseEvent) => {
+    e.stopPropagation();
     const tag = `#${getTagName(category.name)}`;
     onSelect(tag);
     justSelectedRef.current = true;
     closeDropdown();
   };
 
-  const handleToggle = () => {
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (isExpanded) {
       closeDropdown();
     } else {
       setIsExpanded(true);
-      expandedBySearchRef.current = false; // Manual open, allow auto-expand later
+      expandedBySearchRef.current = false;
     }
   };
 
-  const handleBackdropClick = () => {
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     closeDropdown();
   };
 
@@ -229,7 +232,7 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
                   <li key={category.id}>
                     <button
                       type="button"
-                      onClick={() => handleSelect(category)}
+                      onClick={(e) => handleSelect(category, e)}
                       className="w-full px-3 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
                     >
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
