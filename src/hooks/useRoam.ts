@@ -175,14 +175,21 @@ export function useRoam() {
   const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
     // Try today's page first
     const todayPageTitle = generatePageTitle();
+    console.log('=== getLastEntryEndTime ===');
+    console.log('Today page:', todayPageTitle);
     const todayEndTime = await getLastEntryEndTimeFromPage(todayPageTitle);
+    console.log('Today end time:', todayEndTime);
     if (todayEndTime) {
+      console.log('Using TODAY end time');
       return todayEndTime;
     }
 
     // Fallback to yesterday's page
     const yesterdayPageTitle = getYesterdayPageTitle();
+    console.log('Yesterday page:', yesterdayPageTitle);
     const yesterdayEndTime = await getLastEntryEndTimeFromPage(yesterdayPageTitle);
+    console.log('Yesterday end time:', yesterdayEndTime);
+    console.log('Using YESTERDAY end time');
     return yesterdayEndTime;
   }, [getLastEntryEndTimeFromPage]);
 
