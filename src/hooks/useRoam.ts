@@ -61,8 +61,9 @@ export function useRoam() {
 
     try {
       const result = await bffFetch('q', { query });
-      if (result && result.length > 0) {
-        return result[0][0];
+      const data = result?.result;
+      if (data && data.length > 0) {
+        return data[0][0];
       }
       return null;
     } catch {
@@ -81,8 +82,9 @@ export function useRoam() {
 
     try {
       const result = await bffFetch('q', { query });
-      if (result && result[0]) {
-        const blocks = result[0] as Array<{ ':block/string'?: string; ':block/order'?: number }>;
+      const data = result?.result;
+      if (data && data.length > 0) {
+        const blocks = data.map((item: unknown[]) => item[0]) as Array<{ ':block/string'?: string; ':block/order'?: number }>;
         // Find the block with highest order (last)
         let lastBlock = blocks[0];
         for (const block of blocks) {
