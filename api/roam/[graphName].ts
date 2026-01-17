@@ -44,9 +44,14 @@ export default async function handler(
     return response.status(400).json({ error: 'Action is required' });
   }
 
-  const body = JSON.stringify({ action, ...data });
-
   const isQuery = action === 'q';
+
+  // Build correct body and URL based on action type
+  // Query: POST /api/graph/{graph}/q with { query, args }
+  // Write: POST /api/graph/{graph}/write with { action, ...data }
+  const body = isQuery
+    ? JSON.stringify({ query: data.query, args: data.args || [] })
+    : JSON.stringify({ action, ...data });
 
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${apiToken}`,
@@ -55,11 +60,11 @@ export default async function handler(
     'Content-Length': String(Buffer.byteLength(body)),
   };
 
-  // Queries go to main API only (no /write)
-  // Mutations go to main API + peer servers with /write
+  // Queries go to /q endpoint
+  // Mutations go to /write endpoint + peer servers
   const urlsToTry = isQuery
-    ? [`${ROAM_API_BASE}/${graphName}`]
-    : [`${ROAM_API_BASE}/${graphName}`, ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)];
+    ? [`${ROAM_API_BASE}/${graphName}/q`]
+    : [`${ROAM_API_BASE}/${graphName}/write`, ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)];
 
   let lastError: string = '';
 
@@ -82,7 +87,6 @@ export default async function handler(
           });
           if (redirectResponse.ok) {
             if (isQuery) {
-              // For queries, return the actual data
               const result = await redirectResponse.json();
               return response.status(200).json(result);
             }
@@ -95,7 +99,6 @@ export default async function handler(
 
       if (roamResponse.ok) {
         if (isQuery) {
-          // For queries, return the actual data
           const result = await roamResponse.json();
           return response.status(200).json(result);
         }

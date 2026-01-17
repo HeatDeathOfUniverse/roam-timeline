@@ -33,7 +33,13 @@ app.post('/api/roam/:graphName', async (req, res) => {
   const { action, ...data } = req.body;
   const isQuery = action === 'q';
 
-  const body = JSON.stringify({ action, ...data });
+  // Build correct body and URL based on action type
+  // Query: POST /api/graph/{graph}/q with { query, args }
+  // Write: POST /api/graph/{graph}/write with { action, ...data }
+  const body = isQuery
+    ? JSON.stringify({ query: data.query, args: data.args || [] })
+    : JSON.stringify({ action, ...data });
+
   const headers = {
     'Authorization': `Bearer ${ROAM_API_TOKEN}`,
     'x-authorization': `Bearer ${ROAM_API_TOKEN}`,
@@ -41,14 +47,11 @@ app.post('/api/roam/:graphName', async (req, res) => {
     'Content-Length': Buffer.byteLength(body)
   };
 
-  // All operations go through /write endpoint on peers
-  // Main API handles queries at root, writes get redirected
-  const mainUrl = `https://api.roamresearch.com/api/graph/${graphName}`;
-  const peerUrls = PEERS.map(p => `https://${p}/api/graph/${graphName}/write`);
-
-  // For queries, only try main API (no /write)
-  // For mutations, try main API then peers with /write
-  const urlsToTry = isQuery ? [mainUrl] : [mainUrl, ...peerUrls];
+  // Queries go to /q endpoint
+  // Mutations go to /write endpoint + peer servers
+  const urlsToTry = isQuery
+    ? [`https://api.roamresearch.com/api/graph/${graphName}/q`]
+    : [`https://api.roamresearch.com/api/graph/${graphName}/write`, ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)];
 
   console.log('action:', action, 'isQuery:', isQuery, 'urls:', urlsToTry);
 
@@ -96,13 +99,24 @@ app.post('/api/roam/:graphName', async (req, res) => {
           req.end();
         });
         console.log('  Redirect status:', redirectResponse.status);
-        res.status(200).json({ success: true, redirectStatus: redirectResponse.status });
-        return;
+        if (redirectResponse.status === 200) {
+          if (isQuery) {
+            try {
+              const parsedData = JSON.parse(redirectResponse.data);
+              res.status(200).json(parsedData);
+            } catch {
+              res.status(200).json({ data: redirectResponse.data });
+            }
+          } else {
+            res.status(200).json({ success: true });
+          }
+          return;
+        }
+        continue;
       }
 
       if (response.status === 200) {
         console.log('  SUCCESS!');
-        // For queries, return the actual data; for mutations, just return success
         if (isQuery) {
           try {
             const parsedData = JSON.parse(response.data);
