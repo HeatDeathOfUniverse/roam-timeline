@@ -373,7 +373,9 @@ Let's format both timelines. Output ONLY valid JSON with this exact structure:
   "today": [...]
 }
 ```
-Do not include any explanation or markdown formatting. Just output the JSON object starting with { and ending with }.
+Do not include any explanation or markdown formatting. Just output the JSON object starting with { and ending with }."""
+
+        return prompt
 
     def format_today(self) -> bool:
         """Format today's timeline entries."""
