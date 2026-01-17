@@ -272,30 +272,41 @@ class TimelineFormatter:
                     pass
         return ""
 
-    def get_prompt_for_today(self, today_entries: list[dict], yesterday_last_end: Optional[str]) -> str:
-        """Generate the Claude prompt for formatting today's timeline."""
+    def get_prompt_for_both_days(
+        self,
+        yesterday_entries: list[dict],
+        yesterday_last_end: Optional[str],
+        today_entries: list[dict],
+        today_timeline_uid: str,
+        yesterday_timeline_uid: Optional[str]
+    ) -> str:
+        """Generate the Claude prompt for formatting both yesterday and today timelines."""
 
-        entries_text = "\n".join([
+        # Format yesterday entries for the prompt
+        yesterday_text = "\n".join([
+            f"- [{e['uid']}] {e['content']}" for e in yesterday_entries
+        ]) if yesterday_entries else "(No yesterday entries)"
+
+        # Format today entries for the prompt
+        today_text = "\n".join([
             f"- [{e['uid']}] {e['content']}" for e in today_entries
-        ]) if today_entries else "(No existing entries)"
-
-        yesterday_info = ""
-        if yesterday_last_end:
-            yesterday_info = f"Yesterday's last entry ended at: {yesterday_last_end}"
-        else:
-            yesterday_info = "(Could not find yesterday's last entry)"
+        ]) if today_entries else "(No today entries)"
 
         prompt = f"""You are a specialized agent for formatting daily journal timeline entries in Roam Research.
 
 ## Background
-You are formatting today's journal timeline entries. Each timestamp represents "what happened from the previous timestamp to this timestamp".
+You are formatting journal timeline entries for TWO days. Each timestamp represents "what happened from the previous timestamp to this timestamp".
 
-{yesterday_info}
+## Yesterday's Timeline
+{yesterday_text}
 
-## Current Timeline Entries
-```
-{entries_text}
-```
+## Today's Timeline
+{today_text}
+
+Yesterday's last entry ended at: {yesterday_last_end or "(unknown)"}
+
+Yesterday's Timeline block UID: {yesterday_timeline_uid or "N/A"}
+Today's Timeline block UID: {today_timeline_uid}
 
 ## Standard Format
 All timeline entries should follow this pattern:
@@ -310,27 +321,25 @@ Where:
 
 ## Rules
 
-1. **First Entry Handling**: If today's first entry has a timestamp (e.g., "09:00 some activity"), you need to calculate its start time:
-   - Use yesterday's last entry end time as the start
-   - If the content mentions time ranges (e.g., "昨晚上两点半睡到今天早上8点半"), split into separate entries
+1. **First Entry Handling (Yesterday)**: Yesterday's first entry starts at 00:00, unless there's a time reference in the content (e.g., "昨晚上两点半睡到...").
 
-2. **Duration Calculation**: For each entry, calculate duration as (end_time - start_time):
+2. **First Entry Handling (Today)**: Today's first entry starts from yesterday's last end time. If the content mentions time ranges (e.g., "昨晚上两点半睡到今天早上8点半"), split into separate entries.
+
+3. **Duration Calculation**: For each entry, calculate duration as (end_time - start_time):
    - If < 60 minutes: use format (**XX'**)
    - If >= 60 minutes: use format (**XhXX'**)
 
-3. **Summary Entries / Content Time References**: Entries that mention multiple time points should be SPLIT:
+4. **Summary Entries / Content Time References**: Entries that mention multiple time points should be SPLIT:
    - Example: "16:29 - 17:10 (**41'**) - 刚刚到17点为止，在上厕所。然后让AI重写了一下..."
    - This should be split into:
      - "16:29 - 17:00 (**31'**) - 在上厕所" (content ends at "17点")
      - "17:00 - 17:10 (**10'**) - 然后让AI重写了一下..."
    - **IMPORTANT**: Even if the entry is already in standard format, if the CONTENT mentions additional time points (like "17点", "下午1点", "12点过"), you MUST split it and DELETE the original
 
-4. **Time Format Conversion**:
+5. **Time Format Conversion**:
    - Decimal times like "1.06" → 1 hour 6 minutes → 13:06
    - Chinese times like "11点半" → 11:30, "下午1点10分" → 13:10
    - "X点过" → X:00, "X点" → X:00
-
-5. **Cross-Day Continuity**: Start from yesterday's last end time, then process today's entries sequentially.
 
 6. **Replace ALL Entries**: For entries that need formatting (e.g., using Chinese brackets `（）` instead of English `()` or missing duration), you MUST include their UIDs in the delete list. Only keep entries that are already in the correct format AND have no additional time references in the content.
 
@@ -339,21 +348,25 @@ Where:
 Return a JSON object with this structure:
 ```json
 {{
-  "actions": [
-    {{"type": "delete", "uid": "block-uid-to-delete"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description"}}
+  "yesterday": [
+    {{"type": "delete", "uid": "yesterday-block-uid-to-delete"}},
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description", "timeline_uid": "yesterday-timeline-uid"}}
+  ],
+  "today": [
+    {{"type": "delete", "uid": "today-block-uid-to-delete"}},
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description", "timeline_uid": "today-timeline-uid"}}
   ]
 }}
 ```
 
 Important:
 - Use the original block UIDs for deletion
-- For new entries, do NOT use "after_uid" - all new entries will be added to the Timeline block directly in order
-- For splitting summary entries, create new entries and mark the original for deletion
-- If the last entry only has a timestamp (no content after), this means the previous activity continued - convert it to a range entry
+- Use the correct timeline_uid for each day's entries
+- All new entries will be added to the Timeline block directly in order
 - DELETE all original entries that need to be replaced
+- Process BOTH yesterday and today's entries
 
-Let's format the timeline:"""
+Let's format both timelines:"""
 
         return prompt
 
@@ -378,9 +391,10 @@ Let's format the timeline:"""
 
         print(f"Found Timeline block: {timeline_uid}")
 
-        # Get yesterday's last entry end time
+        # Get yesterday's last entry end time AND yesterday entries to format
         yesterday_uid = self.roam.get_daily_page_uid(yesterday)
         yesterday_last_end = None
+        yesterday_entries_to_format = []
 
         print(f"[DEBUG] Looking for yesterday's page: {self.roam._format_roam_date(yesterday)}")
         print(f"[DEBUG] Yesterday UID: {yesterday_uid}")
@@ -395,13 +409,20 @@ Let's format the timeline:"""
                     print("[DEBUG] Yesterday entries:")
                     for i, entry in enumerate(yesterday_entries):
                         print(f"  [{i}] UID={entry['uid']}: {entry['content'][:80]}...")
-                    # Find last entry and extract end time
+                    # Find last entry with standard format
                     for entry in reversed(yesterday_entries):
                         match = re.search(r"(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})", entry["content"])
                         if match:
                             yesterday_last_end = match[2]
                             print(f"[DEBUG] Found last end time: {yesterday_last_end}")
                             break
+                    # Collect entries that need formatting
+                    yesterday_entries_to_format = [
+                        e for e in yesterday_entries
+                        if not re.search(r"\(\*\*\d+'\*\*\)", e["content"])
+                    ]
+                    if yesterday_entries_to_format:
+                        print(f"[DEBUG] Yesterday entries needing format: {len(yesterday_entries_to_format)}")
                 else:
                     print("[DEBUG] No entries found in yesterday's Timeline")
             else:
@@ -421,8 +442,22 @@ Let's format the timeline:"""
         for i, entry in enumerate(today_entries):
             print(f"  [{i}] UID={entry['uid']}: {entry['content'][:80]}...")
 
-        # Generate prompt for Claude
-        prompt = self.get_prompt_for_today(today_entries, yesterday_last_end)
+        # Collect today's entries that need formatting
+        today_entries_to_format = [
+            e for e in today_entries
+            if not re.search(r"\(\*\*\d+'\*\*\)", e["content"])
+        ]
+        if today_entries_to_format:
+            print(f"[DEBUG] Today entries needing format: {len(today_entries_to_format)}")
+
+        # Generate prompt for both days
+        prompt = self.get_prompt_for_both_days(
+            yesterday_entries,
+            yesterday_last_end,
+            today_entries,
+            timeline_uid,
+            yesterday_timeline_uid
+        )
 
         # Call Claude
         anthropic_client = Anthropic(
@@ -458,46 +493,33 @@ Let's format the timeline:"""
             if json_match:
                 json_str = json_match.group(1)
                 print(f"\n[DEBUG] Parsed JSON: {json_str}")
-                actions = json.loads(json_str).get("actions", [])
+                result = json.loads(json_str)
             else:
                 # Try to find JSON without code blocks
-                json_match = re.search(r"\{[^{}]*\"actions\"[^{}]*\}", response_text, re.DOTALL)
+                json_match = re.search(r"\{[^{}]*\"(yesterday|today)\"[^{}]*\}", response_text, re.DOTALL)
                 if json_match:
                     json_str = json_match.group(0)
                     print(f"\n[DEBUG] Parsed JSON (no code block): {json_str}")
-                    actions = json.loads(json_str).get("actions", [])
+                    result = json.loads(json_str)
                 else:
                     print("[ERROR] Could not parse actions from response")
                     print(f"[DEBUG] Full response: {response_text}")
                     return False
 
-            print(f"[DEBUG] Total actions to execute: {len(actions)}")
-            for i, action in enumerate(actions):
-                print(f"  [{i}] {action}")
+            # Process both yesterday and today's actions
+            all_actions = []
+            for day in ["yesterday", "today"]:
+                day_actions = result.get(day, [])
+                print(f"[DEBUG] {day.capitalize()} actions: {len(day_actions)}")
+                for action in day_actions:
+                    action["day"] = day  # Tag with day for reference
+                    all_actions.append(action)
 
-            # Use batch actions to avoid rate limiting
-            print(f"\nExecuting {len(actions)} actions via batch...")
-            deletes = [a for a in actions if a.get("type") == "delete"]
-            creates = [a for a in actions if a.get("type") == "create"]
+            print(f"[DEBUG] Total actions to execute: {len(all_actions)}")
 
-            # Convert deletes to batch format
-            delete_actions = [{"type": "delete", "uid": a["uid"]} for a in deletes]
-
-            # Convert creates to batch format
-            create_actions = [
-                {"type": "create", "parent_uid": timeline_uid, "string": a["string"]}
-                for a in creates
-            ]
-
-            # Execute deletes in batch
-            if delete_actions:
-                print(f"  Deleting {len(delete_actions)} entries...")
-                self.roam.batch_actions(delete_actions)
-
-            # Execute creates in batch
-            if create_actions:
-                print(f"  Creating {len(create_actions)} entries...")
-                self.roam.batch_actions(create_actions)
+            # Execute batch actions for both days
+            if all_actions:
+                self._execute_batch_actions(all_actions, timeline_uid, yesterday_timeline_uid)
 
             print("Done!")
             return True
@@ -505,6 +527,74 @@ Let's format the timeline:"""
         except Exception as e:
             print(f"Error calling Claude: {e}")
             return False
+
+    def _execute_batch_actions(
+        self,
+        all_actions: list[dict],
+        today_timeline_uid: str,
+        yesterday_timeline_uid: Optional[str]
+    ):
+        """Execute batch actions for both days."""
+        print(f"\nExecuting {len(all_actions)} actions via batch...")
+
+        # Group by day
+        yesterday_actions = [a for a in all_actions if a.get("day") == "yesterday"]
+        today_actions = [a for a in all_actions if a.get("day") == "today"]
+
+        # Execute yesterday actions
+        if yesterday_actions:
+            print(f"  Processing {len(yesterday_actions)} yesterday actions...")
+            self._execute_day_actions(yesterday_actions, yesterday_timeline_uid, "yesterday")
+
+        # Execute today actions
+        if today_actions:
+            print(f"  Processing {len(today_actions)} today actions...")
+            self._execute_day_actions(today_actions, today_timeline_uid, "today")
+
+    def _execute_day_actions(
+        self,
+        actions: list[dict],
+        timeline_uid: Optional[str],
+        day_name: str
+    ):
+        """Execute actions for a single day."""
+        if not timeline_uid:
+            print(f"  [WARN] No timeline UID for {day_name}, skipping")
+            return
+
+        # Separate deletes and creates
+        deletes = [a for a in actions if a.get("type") == "delete"]
+        creates = [a for a in actions if a.get("type") == "create"]
+
+        # Execute deletes in batch
+        if deletes:
+            print(f"    Deleting {len(deletes)} {day_name} entries...")
+            roam_deletes = [
+                {"action": "delete-block", "block": {"uid": a["uid"]}}
+                for a in deletes
+            ]
+            try:
+                self.roam.write("batch-actions", actions=roam_deletes)
+                print(f"    [OK] Deleted {len(deletes)} {day_name} entries")
+            except Exception as e:
+                print(f"    [ERROR] Delete failed: {e}")
+
+        # Execute creates in batch
+        if creates:
+            print(f"    Creating {len(creates)} {day_name} entries...")
+            roam_creates = [
+                {
+                    "action": "create-block",
+                    "location": {"parent-uid": timeline_uid, "order": "last"},
+                    "block": {"string": a["string"]}
+                }
+                for a in creates
+            ]
+            try:
+                self.roam.write("batch-actions", actions=roam_creates)
+                print(f"    [OK] Created {len(creates)} {day_name} entries")
+            except Exception as e:
+                print(f"    [ERROR] Create failed: {e}")
 
 
 def main():
