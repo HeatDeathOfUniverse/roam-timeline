@@ -57,11 +57,9 @@ export function useRoam() {
     const entries: Array<{ content: string; startTime: string; endTime: string; duration: string }> = [];
     for (const block of blocks) {
       const str = block[':block/string'];
-      console.log('Parsing block:', str);
       if (str) {
         // Parse format: "09:08 - 09:47 (**39'**) - content" (content may include markdown images on new lines)
         const timeMatch = str.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
-        console.log('Regex match result:', timeMatch);
         if (timeMatch) {
           entries.push({
             startTime: timeMatch[1],
@@ -83,7 +81,6 @@ export function useRoam() {
         }
       }
     }
-    console.log('Parsed entries:', entries);
     return entries;
   };
 
