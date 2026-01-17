@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Fuse from 'fuse.js';
 import type { Category } from '../hooks/useRoam';
 
@@ -13,20 +13,14 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [wasExpandedBySearch, setWasExpandedBySearch] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const expandedBySearchRef = useRef(false);
 
-  // Auto-expand when there's a search query
-  useEffect(() => {
-    if (searchQuery.trim() && !isExpanded) {
-      setIsExpanded(true);
-      setWasExpandedBySearch(true);
-    } else if (!searchQuery.trim() && wasExpandedBySearch) {
-      // If search query is cleared and was auto-expanded, close the dropdown
-      setIsExpanded(false);
-      setWasExpandedBySearch(false);
-    }
-  }, [searchQuery]);
+  // Close dropdown function
+  const closeDropdown = useCallback(() => {
+    setIsExpanded(false);
+    expandedBySearchRef.current = false;
+  }, []);
 
   // Fetch categories on mount
   useEffect(() => {
@@ -71,25 +65,35 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
     fetchCategories();
   }, []);
 
+  // Handle auto-expand based on search query
+  useEffect(() => {
+    const hasSearchQuery = searchQuery.trim().length > 0;
+
+    if (hasSearchQuery && !isExpanded) {
+      setIsExpanded(true);
+      expandedBySearchRef.current = true;
+    } else if (!hasSearchQuery && expandedBySearchRef.current && isExpanded) {
+      closeDropdown();
+    }
+  }, [searchQuery, isExpanded, closeDropdown]);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsExpanded(false);
+        closeDropdown();
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [closeDropdown]);
 
   // Setup Fuse.js for fuzzy search
   const fuse = useMemo(() => {
     return new Fuse(categories, {
-      keys: [
-        { name: 'name', weight: 1 },
-      ],
-      threshold: 0.4, // 0.0 = exact match, 1.0 = match anything
+      keys: [{ name: 'name', weight: 1 }],
+      threshold: 0.4,
       includeScore: true,
       includeMatches: true,
       minMatchCharLength: 1,
@@ -101,25 +105,18 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   // Search and filter categories
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) {
-      // No search query, show all categories sorted by usage frequency
-      return categories.map(cat => ({
-        category: cat,
-        score: 1,
-        matches: [] as unknown[],
-      }));
+      return categories.map(cat => ({ category: cat, score: 1 }));
     }
 
     const results = fuse.search(searchQuery);
     return results.map(result => ({
       category: result.item,
       score: result.score ?? 1,
-      matches: result.matches || [],
     }));
   }, [searchQuery, categories, fuse]);
 
   // Get tag name from category
   const getTagName = (name: string): string => {
-    // Remove [[ ]] and convert to lowercase for tag
     return name.replace(/\[\[|\]\]/g, '').toLowerCase();
   };
 
@@ -127,11 +124,10 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   const highlightMatch = (name: string, query: string): React.ReactNode => {
     if (!query.trim()) return name;
 
-    // Escape regex special characters
     const escapedQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`(${escapedQuery})`, 'gi');
-
     const parts = name.split(regex);
+
     return parts.map((part, index) =>
       regex.test(part) ? (
         <span key={index} className="bg-yellow-500/30 text-yellow-200 rounded px-0.5">
@@ -146,37 +142,20 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   const handleSelect = (category: Category) => {
     const tag = `#${getTagName(category.name)}`;
     onSelect(tag);
-    setIsExpanded(false);
-    setWasExpandedBySearch(false);
+    closeDropdown();
   };
 
-  // Handle manual toggle
   const handleToggle = () => {
     if (isExpanded) {
-      setIsExpanded(false);
-      setWasExpandedBySearch(false);
+      closeDropdown();
     } else {
       setIsExpanded(true);
-      setWasExpandedBySearch(false);
+      expandedBySearchRef.current = false;
     }
   };
 
-  // Auto-expand when there's a search query
-  useEffect(() => {
-    if (searchQuery.trim() && !isExpanded) {
-      setIsExpanded(true);
-      setWasExpandedBySearch(true);
-    } else if (!searchQuery.trim() && wasExpandedBySearch) {
-      // If search query is cleared and was auto-expanded, close the dropdown
-      setIsExpanded(false);
-      setWasExpandedBySearch(false);
-    }
-  }, [searchQuery, wasExpandedBySearch, isExpanded]);
-
-  // Close dropdown on backdrop click
   const handleBackdropClick = () => {
-    setIsExpanded(false);
-    setWasExpandedBySearch(false);
+    closeDropdown();
   };
 
   return (
@@ -247,8 +226,6 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
                       <span className="flex-1 truncate">
                         {highlightMatch(category.name, searchQuery)}
                       </span>
-                      {/* Show relevance score for debugging */}
-                      {/* <span className="text-xs text-gray-600">{score?.toFixed(2)}</span> */}
                     </button>
                   </li>
                 ))}
