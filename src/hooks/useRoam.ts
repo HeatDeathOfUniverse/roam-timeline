@@ -88,12 +88,13 @@ export function useRoam() {
   };
 
   // Get all entries under Timeline block from a specific page
+  // Uses an alternative query approach to avoid clojure.string/includes? which can fail on some Roam peers
   const getTimelineEntriesFromPage = useCallback(async (pageTitle: string): Promise<Array<{ content: string; startTime: string; endTime: string; duration: string }>> => {
+    // First, find the Timeline block and get its children with full data
     const query = `[:find (pull ?child [:block/string :block/order]) :where
       [?p :node/title "${pageTitle}"]
       [?b :block/page ?p]
-      [?b :block/uid ?uid]
-      [(clojure.string/includes? ?b :block/string "Timeline")]
+      [?b :block/string "Timeline"]
       [?b :block/children ?child]]`;
 
     try {
@@ -132,12 +133,12 @@ export function useRoam() {
   }, [getTimelineEntriesFromPage]);
 
   // Get the end time of the last entry under Timeline in a specific page
+  // Uses exact string match instead of clojure.string/includes? to avoid peer issues
   const getLastEntryEndTimeFromPage = useCallback(async (pageTitle: string): Promise<string | null> => {
     const query = `[:find (pull ?child [:block/string :block/order]) :where
       [?p :node/title "${pageTitle}"]
       [?b :block/page ?p]
-      [?b :block/uid ?uid]
-      [(clojure.string/includes? ?b :block/string "Timeline")]
+      [?b :block/string "Timeline"]
       [?b :block/children ?child]]`;
 
     try {
