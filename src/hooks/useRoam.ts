@@ -197,8 +197,9 @@ export function useRoam() {
       const pageTitle = generatePageTitle();
       const formattedText = formatTimeForRoam(entry as JournalEntry);
 
-      // Fixed UID for Timeline block - creates once, reused thereafter
-      const timelineUid = 'timeline-block-main';
+      // Use date-based UID so each day has its own Timeline block
+      const today = new Date().toISOString().split('T')[0]; // "2026-01-18"
+      const timelineUid = `timeline-${today}`; // "timeline-2026-01-18"
 
       // Try to create Timeline block if it doesn't exist (idempotent)
       try {
