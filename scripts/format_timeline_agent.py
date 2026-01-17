@@ -313,15 +313,21 @@ Where:
    - If < 60 minutes: use format (**XX'**)
    - If >= 60 minutes: use format (**XhXX'**)
 
-3. **Summary Entries**: Entries that mention multiple time points (e.g., "15:47 上午测试完...到现在") should be SPLIT into individual timeline items and the original entry DELETED.
+3. **Summary Entries / Content Time References**: Entries that mention multiple time points should be SPLIT:
+   - Example: "16:29 - 17:10 (**41'**) - 刚刚到17点为止，在上厕所。然后让AI重写了一下..."
+   - This should be split into:
+     - "16:29 - 17:00 (**31'**) - 在上厕所" (content ends at "17点")
+     - "17:00 - 17:10 (**10'**) - 然后让AI重写了一下..."
+   - **IMPORTANT**: Even if the entry is already in standard format, if the CONTENT mentions additional time points (like "17点", "下午1点", "12点过"), you MUST split it and DELETE the original
 
 4. **Time Format Conversion**:
    - Decimal times like "1.06" → 1 hour 6 minutes → 13:06
    - Chinese times like "11点半" → 11:30, "下午1点10分" → 13:10
+   - "X点过" → X:00, "X点" → X:00
 
 5. **Cross-Day Continuity**: Start from yesterday's last end time, then process today's entries sequentially.
 
-6. **Replace ALL Entries**: For entries that need formatting (e.g., using Chinese brackets `（）` instead of English `()` or missing duration), you MUST include their UIDs in the delete list. Only keep entries that are already in the correct format.
+6. **Replace ALL Entries**: For entries that need formatting (e.g., using Chinese brackets `（）` instead of English `()` or missing duration), you MUST include their UIDs in the delete list. Only keep entries that are already in the correct format AND have no additional time references in the content.
 
 ## Output Format
 
