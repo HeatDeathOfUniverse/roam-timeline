@@ -23,6 +23,95 @@ const PEERS = [
   'peer-23.api.roamresearch.com:3001',
 ];
 
+// Categories API endpoint - MUST come before /:graphName route
+app.post('/api/roam/categories', async (req, res) => {
+  console.log('>>> CATEGORIES API ROUTE HIT <<<');
+  const { graphName } = req.body;
+
+  if (!graphName) {
+    return res.status(400).json({ error: 'Graph name is required' });
+  }
+
+  console.log('Fetching categories for graph:', graphName);
+
+  const query = `[:find (pull ?block [:block/uid :block/string]) :where
+    [?page :node/title "Time Categories"]
+    [?block :block/page ?page]]`;
+
+  const body = JSON.stringify({ query, args: [] });
+
+  const headers = {
+    'Authorization': `Bearer ${ROAM_API_TOKEN}`,
+    'x-authorization': `Bearer ${ROAM_API_TOKEN}`,
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body)
+  };
+
+  try {
+    const url = new URL(`https://api.roamresearch.com/api/graph/${graphName}/q`);
+    console.log('Trying:', url.hostname + url.pathname);
+
+    const response = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname,
+        method: 'POST',
+        headers: headers
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, data }));
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+
+    console.log('  Status:', response.status);
+
+    if (response.status === 308 && response.headers.location) {
+      const redirectUrl = new URL(response.headers.location);
+      const redirectResponse = await new Promise((resolve, reject) => {
+        const req = https.request({
+          hostname: redirectUrl.hostname,
+          port: redirectUrl.port || 443,
+          path: redirectUrl.pathname,
+          method: 'POST',
+          headers: headers
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => resolve({ status: res.statusCode, data }));
+        });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+      });
+
+      if (redirectResponse.status === 200) {
+        const parsedData = JSON.parse(redirectResponse.data);
+        const categories = parseCategories(parsedData);
+        console.log('  Found', categories.length, 'categories');
+        return res.status(200).json({ categories });
+      }
+    }
+
+    if (response.status === 200) {
+      const parsedData = JSON.parse(response.data);
+      const categories = parseCategories(parsedData);
+      console.log('  Found', categories.length, 'categories');
+      return res.status(200).json({ categories });
+    }
+
+    console.log('  Error:', response);
+    res.status(response.status || 500).json({ error: 'Failed to fetch categories' });
+  } catch (error) {
+    console.log('  Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/roam/:graphName', async (req, res) => {
   console.log('>>> API ROUTE HIT <<<');
   console.log('graphName:', req.params.graphName);
@@ -145,6 +234,27 @@ app.post('/api/roam/:graphName', async (req, res) => {
 
   res.status(500).json({ error: 'All endpoints failed' });
 });
+
+function parseCategories(data) {
+  const result = data?.result;
+  if (!result || !Array.isArray(result)) {
+    return [];
+  }
+
+  return result
+    .map((item) => {
+      const block = item[0];
+      if (block && block[':block/uid'] && block[':block/string']) {
+        return {
+          id: block[':block/uid'],
+          name: block[':block/string'],
+          children: [],
+        };
+      }
+      return null;
+    })
+    .filter(item => item !== null);
+}
 
 app.use(express.static('dist'));
 app.listen(3000, () => console.log('Server running on http://localhost:3000'));

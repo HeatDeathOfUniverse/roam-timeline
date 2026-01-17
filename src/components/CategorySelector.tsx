@@ -18,9 +18,19 @@ export function CategorySelector({ onSelect, disabled }: CategorySelectorProps) 
       setIsLoading(true);
       setError(null);
       try {
+        // Get graphName from localStorage (same as useRoam hook)
+        const saved = localStorage.getItem('roamConfig');
+        const config = saved ? JSON.parse(saved) : null;
+        const graphName = config?.graphName;
+
+        if (!graphName) {
+          throw new Error('Graph name not configured');
+        }
+
         const response = await fetch('/api/roam/categories', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ graphName }),
         });
         if (!response.ok) throw new Error('Failed to fetch categories');
         const data = await response.json();
