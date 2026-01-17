@@ -13,7 +13,20 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wasExpandedBySearch, setWasExpandedBySearch] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Auto-expand when there's a search query
+  useEffect(() => {
+    if (searchQuery.trim() && !isExpanded) {
+      setIsExpanded(true);
+      setWasExpandedBySearch(true);
+    } else if (!searchQuery.trim() && wasExpandedBySearch) {
+      // If search query is cleared and was auto-expanded, close the dropdown
+      setIsExpanded(false);
+      setWasExpandedBySearch(false);
+    }
+  }, [searchQuery]);
 
   // Fetch categories on mount
   useEffect(() => {
@@ -134,21 +147,44 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
     const tag = `#${getTagName(category.name)}`;
     onSelect(tag);
     setIsExpanded(false);
+    setWasExpandedBySearch(false);
+  };
+
+  // Handle manual toggle
+  const handleToggle = () => {
+    if (isExpanded) {
+      setIsExpanded(false);
+      setWasExpandedBySearch(false);
+    } else {
+      setIsExpanded(true);
+      setWasExpandedBySearch(false);
+    }
   };
 
   // Auto-expand when there's a search query
   useEffect(() => {
     if (searchQuery.trim() && !isExpanded) {
       setIsExpanded(true);
+      setWasExpandedBySearch(true);
+    } else if (!searchQuery.trim() && wasExpandedBySearch) {
+      // If search query is cleared and was auto-expanded, close the dropdown
+      setIsExpanded(false);
+      setWasExpandedBySearch(false);
     }
-  }, [searchQuery, isExpanded]);
+  }, [searchQuery, wasExpandedBySearch, isExpanded]);
+
+  // Close dropdown on backdrop click
+  const handleBackdropClick = () => {
+    setIsExpanded(false);
+    setWasExpandedBySearch(false);
+  };
 
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Toggle button */}
       <button
         type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={handleToggle}
         disabled={disabled || isLoading}
         className={`flex items-center gap-1 px-3 py-1.5 rounded text-sm transition-colors ${
           disabled || isLoading
@@ -171,11 +207,11 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
           {/* Backdrop */}
           <div
             className="fixed inset-0 z-10"
-            onClick={() => setIsExpanded(false)}
+            onClick={handleBackdropClick}
           />
 
-          {/* Dropdown content */}
-          <div className="absolute top-full left-0 mt-1 w-64 bg-gray-800 rounded-lg shadow-xl border border-gray-700 z-20 max-h-80 overflow-y-auto">
+          {/* Dropdown content - aligned to right */}
+          <div className="absolute top-full right-0 mt-1 w-64 bg-gray-800 rounded-lg shadow-xl border border-gray-700 z-20 max-h-80 overflow-y-auto">
             {/* Search query indicator */}
             {searchQuery.trim() && (
               <div className="px-3 py-2 text-xs text-gray-500 border-b border-gray-700 bg-gray-800/50">
