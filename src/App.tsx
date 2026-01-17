@@ -7,32 +7,32 @@ import { FormatButton } from './components/FormatButton';
 import { generatePageTitle } from './utils/formatter';
 import type { JournalEntry } from './types';
 
-const LOCAL_STORAGE_KEY = 'roam-journal-entries';
-
-function loadStoredEntries(): JournalEntry[] {
-  try {
-    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-  } catch {
-    console.error('Failed to load entries from localStorage');
-  }
-  return [];
-}
-
 function App() {
-  const { isConfigured, addEntry, isLoading, getLastEntryEndTime } = useRoam();
+  const { isConfigured, addEntry, isLoading, getLastEntryEndTime, getTimelineEntries } = useRoam();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'journal' | 'settings'>('journal');
   const [initialStartTime, setInitialStartTime] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
 
-  // Load entries from localStorage on mount
+  // Fetch entries from Roam on mount
   useEffect(() => {
-    const storedEntries = loadStoredEntries();
-    setEntries(storedEntries);
-  }, []);
+    const fetchEntries = async () => {
+      const roamEntries = await getTimelineEntries();
+      const mapped: JournalEntry[] = roamEntries.map((e, i) => ({
+        id: `roam-${i}`,
+        content: e.content,
+        startTime: e.startTime,
+        endTime: e.endTime,
+        duration: e.duration,
+        createdAt: new Date().toISOString(),
+      }));
+      setEntries(mapped);
+    };
+
+    if (isConfigured) {
+      fetchEntries();
+    }
+  }, [isConfigured, getTimelineEntries]);
 
   // Fetch last entry end time from Roam on mount
   useEffect(() => {
@@ -65,23 +65,8 @@ function App() {
   }
 
   const handleAddEntry = async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
-    const newEntry: JournalEntry = {
-      ...entry,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
-
-    // Update local state and localStorage
-    const updatedEntries = [...entries, newEntry];
-    setEntries(updatedEntries);
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updatedEntries));
-    } catch {
-      console.error('Failed to save entries to localStorage');
-    }
-
     // Update initial start time for next entry
-    setInitialStartTime(newEntry.endTime);
+    setInitialStartTime(entry.endTime);
 
     // 同步到 Roam
     const success = await addEntry({
@@ -90,7 +75,20 @@ function App() {
       endTime: entry.endTime,
       duration: entry.duration,
     });
-    if (!success) {
+
+    if (success) {
+      // Refresh entries from Roam
+      const roamEntries = await getTimelineEntries();
+      const mapped: JournalEntry[] = roamEntries.map((e, i) => ({
+        id: `roam-${i}`,
+        content: e.content,
+        startTime: e.startTime,
+        endTime: e.endTime,
+        duration: e.duration,
+        createdAt: new Date().toISOString(),
+      }));
+      setEntries(mapped);
+    } else {
       alert('同步到 Roam 失败!');
     }
   };

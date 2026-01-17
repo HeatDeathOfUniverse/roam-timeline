@@ -71,6 +71,57 @@ export function useRoam() {
     }
   }, [bffFetch]);
 
+  // Get all entries under Timeline block
+  const getTimelineEntries = useCallback(async (): Promise<Array<{ content: string; startTime: string; endTime: string; duration: string }>> => {
+    const timelineUid = await findTimelineUid();
+    if (!timelineUid) return [];
+
+    const query = `[:find (pull ?child [:block/string :block/order]) :where
+      [?b :block/uid "${timelineUid}"]
+      [?b :block/children ?child]]`;
+
+    try {
+      const result = await bffFetch('q', { query });
+      const data = result?.result;
+      if (data && data.length > 0) {
+        const blocks = data.map((item: unknown[]) => item[0]) as Array<{ ':block/string'?: string; ':block/order'?: number }>;
+
+        // Parse blocks into entries
+        const entries: Array<{ content: string; startTime: string; endTime: string; duration: string }> = [];
+        for (const block of blocks) {
+          const str = block[':block/string'];
+          if (str) {
+            // Parse format: "09:08 - 09:47 (**39'**) - content"
+            const match = str.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*(.+)$/);
+            if (match) {
+              entries.push({
+                startTime: match[1],
+                endTime: match[2],
+                duration: match[3],
+                content: match[4],
+              });
+            } else {
+              // Try old format: "- 09:08 - 09:47 （39'） content"
+              const oldMatch = str.match(/^-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*[（(](.+?)[）)]\s*(.+)$/);
+              if (oldMatch) {
+                entries.push({
+                  startTime: oldMatch[1],
+                  endTime: oldMatch[2],
+                  duration: oldMatch[3],
+                  content: oldMatch[4],
+                });
+              }
+            }
+          }
+        }
+        return entries;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }, [bffFetch, findTimelineUid]);
+
   // Get the end time of the last entry under Timeline
   const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
     const timelineUid = await findTimelineUid();
@@ -171,5 +222,6 @@ export function useRoam() {
     addEntry,
     formatTodayPage,
     getLastEntryEndTime,
+    getTimelineEntries,
   };
 }
