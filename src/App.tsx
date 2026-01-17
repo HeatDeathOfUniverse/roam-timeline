@@ -22,7 +22,7 @@ function loadStoredEntries(): JournalEntry[] {
 }
 
 function App() {
-  const { isConfigured, addEntry, isLoading } = useRoam();
+  const { isConfigured, addEntry, isLoading, getLastEntryEndTime } = useRoam();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'journal' | 'settings'>('journal');
   const [initialStartTime, setInitialStartTime] = useState<string>('');
@@ -32,13 +32,21 @@ function App() {
   useEffect(() => {
     const storedEntries = loadStoredEntries();
     setEntries(storedEntries);
-
-    // Get last entry's end time
-    if (storedEntries.length > 0) {
-      const lastEntry = storedEntries[storedEntries.length - 1];
-      setInitialStartTime(lastEntry.endTime);
-    }
   }, []);
+
+  // Fetch last entry end time from Roam on mount
+  useEffect(() => {
+    const fetchLastEntry = async () => {
+      const lastEndTime = await getLastEntryEndTime();
+      if (lastEndTime) {
+        setInitialStartTime(lastEndTime);
+      }
+    };
+
+    if (isConfigured) {
+      fetchLastEntry();
+    }
+  }, [isConfigured, getLastEntryEndTime]);
 
   // Update current time every second
   useEffect(() => {

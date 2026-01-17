@@ -31,7 +31,7 @@ app.post('/api/roam/:graphName', async (req, res) => {
 
   const { graphName } = req.params;
   const { action, ...data } = req.body;
-  const isQuery = action === 'datalog';
+  const isQuery = action === 'q';
 
   const body = JSON.stringify({ action, ...data });
   const headers = {

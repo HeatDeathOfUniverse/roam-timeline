@@ -52,6 +52,61 @@ export function useRoam() {
     return response.json();
   }, [config]);
 
+  // Query to find Timeline block UID
+  const findTimelineUid = useCallback(async (): Promise<string | null> => {
+    const query = `[:find ?uid ?str :where
+      [?b :block/uid ?uid]
+      [?b :block/string ?str]
+      [(clojure.string/includes? ?str "Timeline")]]`;
+
+    try {
+      const result = await bffFetch('q', { query });
+      if (result && result.length > 0) {
+        return result[0][0];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [bffFetch]);
+
+  // Get the end time of the last entry under Timeline
+  const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
+    const timelineUid = await findTimelineUid();
+    if (!timelineUid) return null;
+
+    const query = `[:find (pull ?child [:block/string :block/order]) :where
+      [?b :block/uid "${timelineUid}"]
+      [?b :block/children ?child]]`;
+
+    try {
+      const result = await bffFetch('q', { query });
+      if (result && result[0]) {
+        const blocks = result[0] as Array<{ ':block/string'?: string; ':block/order'?: number }>;
+        // Find the block with highest order (last)
+        let lastBlock = blocks[0];
+        for (const block of blocks) {
+          const blockOrder = block[':block/order'] ?? 0;
+          const lastOrder = lastBlock[':block/order'] ?? 0;
+          if (blockOrder > lastOrder) {
+            lastBlock = block;
+          }
+        }
+
+        const str = lastBlock[':block/string'];
+        if (str) {
+          const match = str.match(/-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+          if (match && match[2]) {
+            return match[2];
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [bffFetch, findTimelineUid]);
+
   const addEntry = useCallback(async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
     setIsLoading(true);
     setError(null);
@@ -113,5 +168,6 @@ export function useRoam() {
     clearConfig,
     addEntry,
     formatTodayPage,
+    getLastEntryEndTime,
   };
 }

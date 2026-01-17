@@ -46,6 +46,8 @@ export default async function handler(
 
   const body = JSON.stringify({ action, ...data });
 
+  const isQuery = action === 'q';
+
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${apiToken}`,
     'x-authorization': `Bearer ${apiToken}`,
@@ -53,10 +55,11 @@ export default async function handler(
     'Content-Length': String(Buffer.byteLength(body)),
   };
 
-  const urlsToTry = [
-    `${ROAM_API_BASE}/${graphName}`,
-    ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)
-  ];
+  // Queries go to main API only (no /write)
+  // Mutations go to main API + peer servers with /write
+  const urlsToTry = isQuery
+    ? [`${ROAM_API_BASE}/${graphName}`]
+    : [`${ROAM_API_BASE}/${graphName}`, ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)];
 
   let lastError: string = '';
 
@@ -78,6 +81,11 @@ export default async function handler(
             body,
           });
           if (redirectResponse.ok) {
+            if (isQuery) {
+              // For queries, return the actual data
+              const result = await redirectResponse.json();
+              return response.status(200).json(result);
+            }
             return response.status(200).json({ success: true });
           }
           lastError = `Redirect failed: ${redirectResponse.status}`;
@@ -86,6 +94,11 @@ export default async function handler(
       }
 
       if (roamResponse.ok) {
+        if (isQuery) {
+          // For queries, return the actual data
+          const result = await roamResponse.json();
+          return response.status(200).json(result);
+        }
         return response.status(200).json({ success: true });
       }
 
