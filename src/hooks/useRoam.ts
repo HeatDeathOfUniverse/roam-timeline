@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { JournalEntry, RoamConfig } from '../types';
-import { formatTimeForRoam, generatePageTitle } from '../utils/formatter';
+import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle } from '../utils/formatter';
 
 const BFF_API_BASE = '/api/roam';
 
@@ -52,35 +52,48 @@ export function useRoam() {
     return response.json();
   }, [config]);
 
-  // Query to find Timeline block UID in today's page
-  const findTimelineUid = useCallback(async (): Promise<string | null> => {
-    const pageTitle = generatePageTitle();
-    const query = `[:find ?uid ?str :where
+  // Parse blocks into entries (helper function)
+  const parseEntries = (blocks: Array<{ ':block/string'?: string; ':block/order'?: number }>): Array<{ content: string; startTime: string; endTime: string; duration: string }> => {
+    const entries: Array<{ content: string; startTime: string; endTime: string; duration: string }> = [];
+    for (const block of blocks) {
+      const str = block[':block/string'];
+      console.log('Parsing block:', str);
+      if (str) {
+        // Parse format: "09:08 - 09:47 (**39'**) - content" (content may include markdown images on new lines)
+        const timeMatch = str.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
+        console.log('Regex match result:', timeMatch);
+        if (timeMatch) {
+          entries.push({
+            startTime: timeMatch[1],
+            endTime: timeMatch[2],
+            duration: timeMatch[3],
+            content: timeMatch[4],
+          });
+        } else {
+          // Try old format: "- 09:08 - 09:47 （39'） content"
+          const oldMatch = str.match(/^-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*[（(](.+?)[）)]\s*(.+)$/);
+          if (oldMatch) {
+            entries.push({
+              startTime: oldMatch[1],
+              endTime: oldMatch[2],
+              duration: oldMatch[3],
+              content: oldMatch[4],
+            });
+          }
+        }
+      }
+    }
+    console.log('Parsed entries:', entries);
+    return entries;
+  };
+
+  // Get all entries under Timeline block from a specific page
+  const getTimelineEntriesFromPage = useCallback(async (pageTitle: string): Promise<Array<{ content: string; startTime: string; endTime: string; duration: string }>> => {
+    const query = `[:find (pull ?child [:block/string :block/order]) :where
       [?p :node/title "${pageTitle}"]
       [?b :block/page ?p]
       [?b :block/uid ?uid]
-      [?b :block/string ?str]
-      [(clojure.string/includes? ?str "Timeline")]]`;
-
-    try {
-      const result = await bffFetch('q', { query });
-      const data = result?.result;
-      if (data && data.length > 0) {
-        return data[0][0];
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }, [bffFetch]);
-
-  // Get all entries under Timeline block
-  const getTimelineEntries = useCallback(async (): Promise<Array<{ content: string; startTime: string; endTime: string; duration: string }>> => {
-    const timelineUid = await findTimelineUid();
-    if (!timelineUid) return [];
-
-    const query = `[:find (pull ?child [:block/string :block/order]) :where
-      [?b :block/uid "${timelineUid}"]
+      [(clojure.string/includes? ?b :block/string "Timeline")]
       [?b :block/children ?child]]`;
 
     try {
@@ -88,50 +101,31 @@ export function useRoam() {
       const data = result?.result;
       if (data && data.length > 0) {
         const blocks = data.map((item: unknown[]) => item[0]) as Array<{ ':block/string'?: string; ':block/order'?: number }>;
-
-        // Parse blocks into entries
-        const entries: Array<{ content: string; startTime: string; endTime: string; duration: string }> = [];
-        for (const block of blocks) {
-          const str = block[':block/string'];
-          console.log('Parsing block:', str);
-          if (str) {
-            // Parse format: "09:08 - 09:47 (**39'**) - content" (content may include markdown images on new lines)
-            // Use [\s\S]*? to match content including newlines and markdown images
-            const timeMatch = str.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
-            console.log('Regex match result:', timeMatch);
-            if (timeMatch) {
-              entries.push({
-                startTime: timeMatch[1],
-                endTime: timeMatch[2],
-                duration: timeMatch[3],
-                content: timeMatch[4],
-              });
-            } else {
-              // Try old format: "- 09:08 - 09:47 （39'） content"
-              const oldMatch = str.match(/^-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*[（(](.+?)[）)]\s*(.+)$/);
-              if (oldMatch) {
-                entries.push({
-                  startTime: oldMatch[1],
-                  endTime: oldMatch[2],
-                  duration: oldMatch[3],
-                  content: oldMatch[4],
-                });
-              }
-            }
-          }
-        }
-        console.log('Parsed entries:', entries);
-        return entries;
+        return parseEntries(blocks);
       }
       return [];
     } catch {
       return [];
     }
-  }, [bffFetch, findTimelineUid]);
+  }, [bffFetch]);
 
-  // Get the end time of the last entry under Timeline in today's page
-  const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
-    const pageTitle = generatePageTitle();
+  // Get all entries under Timeline block (today, fallback to yesterday)
+  const getTimelineEntries = useCallback(async (): Promise<Array<{ content: string; startTime: string; endTime: string; duration: string }>> => {
+    // Try today's page first
+    const todayPageTitle = generatePageTitle();
+    const todayEntries = await getTimelineEntriesFromPage(todayPageTitle);
+    if (todayEntries.length > 0) {
+      return todayEntries;
+    }
+
+    // Fallback to yesterday's page
+    const yesterdayPageTitle = getYesterdayPageTitle();
+    const yesterdayEntries = await getTimelineEntriesFromPage(yesterdayPageTitle);
+    return yesterdayEntries;
+  }, [getTimelineEntriesFromPage]);
+
+  // Get the end time of the last entry under Timeline in a specific page
+  const getLastEntryEndTimeFromPage = useCallback(async (pageTitle: string): Promise<string | null> => {
     const query = `[:find (pull ?child [:block/string :block/order]) :where
       [?p :node/title "${pageTitle}"]
       [?b :block/page ?p]
@@ -167,7 +161,22 @@ export function useRoam() {
     } catch {
       return null;
     }
-  }, [bffFetch, findTimelineUid]);
+  }, [bffFetch]);
+
+  // Get the end time of the last entry under Timeline (today, fallback to yesterday)
+  const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
+    // Try today's page first
+    const todayPageTitle = generatePageTitle();
+    const todayEndTime = await getLastEntryEndTimeFromPage(todayPageTitle);
+    if (todayEndTime) {
+      return todayEndTime;
+    }
+
+    // Fallback to yesterday's page
+    const yesterdayPageTitle = getYesterdayPageTitle();
+    const yesterdayEndTime = await getLastEntryEndTimeFromPage(yesterdayPageTitle);
+    return yesterdayEndTime;
+  }, [getLastEntryEndTimeFromPage]);
 
   const addEntry = useCallback(async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
     setIsLoading(true);

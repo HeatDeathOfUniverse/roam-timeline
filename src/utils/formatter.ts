@@ -29,6 +29,16 @@ export function generatePageTitle(): string {
   return `${month} ${day}${suffix}, ${year}`;
 }
 
+export function getYesterdayPageTitle(): string {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const month = yesterday.toLocaleString('en-US', { month: 'long' });
+  const day = yesterday.getDate();
+  const suffix = getDaySuffix(day);
+  const year = yesterday.getFullYear();
+  return `${month} ${day}${suffix}, ${year}`;
+}
+
 function getDaySuffix(n: number): string {
   if (n > 3 && n < 21) return 'th';
   const last = n % 10;
