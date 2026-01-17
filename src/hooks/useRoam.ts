@@ -148,7 +148,8 @@ export function useRoam() {
 
         const str = lastBlock[':block/string'];
         if (str) {
-          const match = str.match(/-\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+          // Match both new format "09:08 - 09:47 (**39'**)" and old format "- 09:08 - 09:47 （39'）"
+          const match = str.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
           if (match && match[2]) {
             return match[2];
           }
