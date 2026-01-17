@@ -469,9 +469,11 @@ Let's format both timelines:"""
         print(f"Using model: {model}")
 
         try:
+            # Disable thinking to get direct response
             response = anthropic_client.messages.create(
                 model=model,
                 max_tokens=4096,
+                thinking=None,  # Disable thinking
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -486,25 +488,42 @@ Let's format both timelines:"""
                 print(f"[DEBUG] Response content length: {len(response.content)}")
 
                 # Try to extract text from content
+                text_blocks = []
                 for i, block in enumerate(response.content):
-                    block_type = type(block)
-                    print(f"[DEBUG] Block {i}: {block_type}")
+                    block_type = type(block).__name__
+                    print(f"[DEBUG] Block {i}: {block_type}, type attr: {getattr(block, 'type', 'N/A')}")
 
-                    # Handle different block types
-                    if hasattr(block, 'text'):
-                        response_text = block.text
-                        print(f"[DEBUG] Found text attr: {response_text[:100] if response_text else 'EMPTY'}...")
-                        break
-                    elif hasattr(block, 'type'):
-                        # Handle ThinkingBlock, etc.
-                        if block.type == 'text':
-                            response_text = getattr(block, 'text', '') or ''
-                            print(f"[DEBUG] Found text type block: {response_text[:100] if response_text else 'EMPTY'}...")
-                            break
+                    # Collect all text blocks (skip thinking)
+                    if hasattr(block, 'type'):
+                        if block.type == 'text' and hasattr(block, 'text'):
+                            text_blocks.append(block.text)
+                            print(f"[DEBUG] Found text block: {block.text[:100] if block.text else 'EMPTY'}...")
                         elif block.type == 'thinking':
-                            print(f"[DEBUG] Skipping thinking block")
+                            print(f"[DEBUG] ThinkingBlock detected, checking for content...")
+                            # Try to extract thinking content
+                            if hasattr(block, 'thinking'):
+                                print(f"[DEBUG] ThinkingBlock has 'thinking' attr: {type(block.thinking)}")
+                                # The thinking content might be a list or string
+                                if hasattr(block.thinking, 'data'):
+                                    thinking_data = block.thinking.data
+                                    if isinstance(thinking_data, str):
+                                        text_blocks.append(thinking_data)
+                                        print(f"[DEBUG] Extracted thinking: {thinking_data[:100]}...")
+                                    elif isinstance(thinking_data, list):
+                                        thinking_text = " ".join(str(d) for d in thinking_data)
+                                        text_blocks.append(thinking_text)
+                                        print(f"[DEBUG] Extracted thinking list: {thinking_text[:100]}...")
                         else:
                             print(f"[DEBUG] Unknown block type: {block.type}")
+                    elif hasattr(block, 'text'):
+                        # Old format
+                        text_blocks.append(block.text)
+                        print(f"[DEBUG] Found text attr: {block.text[:100] if block.text else 'EMPTY'}...")
+
+                # Join all text blocks
+                response_text = "".join(text_blocks)
+                print(f"[DEBUG] Final response text length: {len(response_text)}")
+
             elif hasattr(response, 'text'):
                 # Old SDK format
                 response_text = response.text
