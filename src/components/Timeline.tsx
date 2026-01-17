@@ -5,8 +5,9 @@ interface Props {
 }
 
 export function Timeline({ entries }: Props) {
+  // 倒序排列：最近的时间在最上面
   const sortedEntries = [...entries].sort((a, b) => {
-    return a.startTime.localeCompare(b.startTime);
+    return b.startTime.localeCompare(a.startTime);
   });
 
   return (
