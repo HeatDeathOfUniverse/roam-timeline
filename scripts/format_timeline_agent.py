@@ -302,6 +302,8 @@ Where:
 
 5. **Cross-Day Continuity**: Start from yesterday's last end time, then process today's entries sequentially.
 
+6. **Replace ALL Entries**: For entries that need formatting (e.g., using Chinese brackets `（）` instead of English `()` or missing duration), you MUST include their UIDs in the delete list. Only keep entries that are already in the correct format.
+
 ## Output Format
 
 Return a JSON object with this structure:
@@ -309,16 +311,17 @@ Return a JSON object with this structure:
 {{
   "actions": [
     {{"type": "delete", "uid": "block-uid-to-delete"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description", "after_uid": "timeline-block-uid"}}
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description"}}
   ]
 }}
 ```
 
 Important:
 - Use the original block UIDs for deletion
-- For new entries, use the Timeline block UID as the reference point (use "last" order)
+- For new entries, do NOT use "after_uid" - all new entries will be added to the Timeline block directly in order
 - For splitting summary entries, create new entries and mark the original for deletion
 - If the last entry only has a timestamp (no content after), this means the previous activity continued - convert it to a range entry
+- DELETE all original entries that need to be replaced
 
 Let's format the timeline:"""
 
@@ -416,21 +419,24 @@ Let's format the timeline:"""
                     print("Could not parse actions from response")
                     return False
 
-            # Execute actions
+            # Execute actions - delete first, then create
             print(f"\nExecuting {len(actions)} actions...")
-            for action in actions:
-                action_type = action.get("type")
-                if action_type == "delete":
-                    uid = action.get("uid")
-                    if uid:
-                        print(f"  Deleting: {uid}")
-                        self.roam.delete_block(uid)
-                elif action_type == "create":
-                    string = action.get("string")
-                    after_uid = action.get("after_uid")
-                    if string:
-                        print(f"  Creating: {string[:50]}...")
-                        self.roam.create_block(after_uid or timeline_uid, string)
+            deletes = [a for a in actions if a.get("type") == "delete"]
+            creates = [a for a in actions if a.get("type") == "create"]
+
+            # Delete first
+            for action in deletes:
+                uid = action.get("uid")
+                if uid:
+                    print(f"  Deleting: {uid}")
+                    self.roam.delete_block(uid)
+
+            # Then create - all under Timeline block directly
+            for action in creates:
+                string = action.get("string")
+                if string:
+                    print(f"  Creating: {string[:50]}...")
+                    self.roam.create_block(timeline_uid, string)
 
             print("Done!")
             return True
