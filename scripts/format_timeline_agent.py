@@ -469,16 +469,17 @@ Let's format both timelines:"""
         print(f"Using model: {model}")
 
         try:
-            # Disable thinking to get direct response
+            # Disable thinking by using a config dict
             response = anthropic_client.messages.create(
                 model=model,
                 max_tokens=4096,
-                thinking=None,  # Disable thinking
+                config={"thinking": {"type": "disabled"}},
                 messages=[{"role": "user", "content": prompt}],
             )
 
             print(f"[DEBUG] Response type: {type(response)}")
             print(f"[DEBUG] Response id: {getattr(response, 'id', 'N/A')}")
+            print(f"[DEBUG] Stop reason: {getattr(response, 'stop_reason', 'N/A')}")
 
             # Handle different SDK response formats
             response_text = ""
