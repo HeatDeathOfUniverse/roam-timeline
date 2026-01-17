@@ -332,7 +332,7 @@ Let's format the timeline:"""
         # Get today's page UID
         today_uid = self.roam.get_daily_page_uid(today)
         if not today_uid:
-            print(f"Today's page not found: Daily/{today.strftime('%Y-%m-%d')}")
+            print(f"Today's page not found: {self.roam._format_roam_date(today)}")
             return False
 
         print(f"Found today's page: {today_uid}")
@@ -390,7 +390,17 @@ Let's format the timeline:"""
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            response_text = response.content[0].text
+            # In Anthropic SDK v0.76.0+, response.content is a list of ContentBlock objects
+            response_text = ""
+            for block in response.content:
+                if hasattr(block, 'text'):
+                    response_text = block.text
+                    break
+
+            if not response_text:
+                print("No text content in response")
+                return False
+
             print(f"\nClaude response:\n{response_text[:500]}...")
 
             # Parse JSON from response
