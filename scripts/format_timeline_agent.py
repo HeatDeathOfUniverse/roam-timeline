@@ -97,6 +97,7 @@ class RoamClient:
 
     def query(self, query: str) -> dict:
         """Execute a Datalog query."""
+        print(f"  [QUERY] {query[:100]}...")
         return self._make_request("q", {"query": query, "args": []})
 
     def write(self, action: str, **data) -> dict:
@@ -166,21 +167,27 @@ class RoamClient:
     def delete_block(self, block_uid: str) -> bool:
         """Delete a block."""
         try:
-            self.write("deleteBlock", block={"uid": block_uid})
+            print(f"  [API] Deleting block: {block_uid}")
+            result = self.write("deleteBlock", block={"uid": block_uid})
+            print(f"  [API] Delete result: {result}")
             return True
-        except Exception:
+        except Exception as e:
+            print(f"  [API] Delete error: {e}")
             return False
 
     def create_block(self, parent_uid: str, string: str, order: int = "last") -> Optional[str]:
         """Create a new block under a parent."""
         try:
-            self.write(
+            print(f"  [API] Creating block under {parent_uid}: {string[:60]}...")
+            result = self.write(
                 "create-block",
                 location={"parent-uid": parent_uid, "order": order},
                 block={"string": string, "uid": f"entry-{datetime.now().timestamp()}"},
             )
+            print(f"  [API] Create result: {result}")
             return True
-        except Exception:
+        except Exception as e:
+            print(f"  [API] Create error: {e}")
             return False
 
 
@@ -372,7 +379,9 @@ Let's format the timeline:"""
             print("No entries to format")
             return False
 
-        print(f"Found {len(today_entries)} entries to process")
+        print(f"[DEBUG] Found {len(today_entries)} entries to process:")
+        for i, entry in enumerate(today_entries):
+            print(f"  [{i}] UID={entry['uid']}: {entry['content'][:80]}...")
 
         # Generate prompt for Claude
         prompt = self.get_prompt_for_today(today_entries, yesterday_last_end)
@@ -404,20 +413,29 @@ Let's format the timeline:"""
                 print("No text content in response")
                 return False
 
-            print(f"\nClaude response:\n{response_text[:500]}...")
+            print(f"\nClaude response:\n{response_text}")
 
             # Parse JSON from response
             json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
             if json_match:
-                actions = json.loads(json_match.group(1)).get("actions", [])
+                json_str = json_match.group(1)
+                print(f"\n[DEBUG] Parsed JSON: {json_str}")
+                actions = json.loads(json_str).get("actions", [])
             else:
                 # Try to find JSON without code blocks
                 json_match = re.search(r"\{[^{}]*\"actions\"[^{}]*\}", response_text, re.DOTALL)
                 if json_match:
-                    actions = json.loads(json_match.group(0)).get("actions", [])
+                    json_str = json_match.group(0)
+                    print(f"\n[DEBUG] Parsed JSON (no code block): {json_str}")
+                    actions = json.loads(json_str).get("actions", [])
                 else:
-                    print("Could not parse actions from response")
+                    print("[ERROR] Could not parse actions from response")
+                    print(f"[DEBUG] Full response: {response_text}")
                     return False
+
+            print(f"[DEBUG] Total actions to execute: {len(actions)}")
+            for i, action in enumerate(actions):
+                print(f"  [{i}] {action}")
 
             # Execute actions - delete first, then create
             print(f"\nExecuting {len(actions)} actions...")
