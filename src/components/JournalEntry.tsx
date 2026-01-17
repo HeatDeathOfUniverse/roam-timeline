@@ -26,8 +26,10 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
   // Check Cloudinary config on mount
   useEffect(() => {
     const cloudinaryConfig = localStorage.getItem('cloudinaryConfig');
+    console.log('Checking Cloudinary config:', cloudinaryConfig);
     if (cloudinaryConfig) {
       const config = JSON.parse(cloudinaryConfig);
+      console.log('Cloudinary loaded:', config);
       setCloudinaryConfigured(!!config.cloudName && !!config.preset);
     }
   }, []);
@@ -106,13 +108,18 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     const cloudName = cloudinaryConfig.cloudName || '';
     const preset = cloudinaryConfig.preset || '';
 
+    console.log('Cloudinary config:', { cloudName, preset, hasConfig: !!cloudinaryConfig.cloudName });
+
     if (!cloudName || !preset) {
       setUploadError('请先在设置中配置 Cloudinary');
       setIsUploading(false);
       return;
     }
 
+    console.log('Starting upload to Cloudinary...');
     const result = await uploadImage(selectedImage, cloudName, preset);
+
+    console.log('Upload result:', result);
 
     if (result.success && result.url) {
       setUploadedImageUrl(result.url);
@@ -139,6 +146,10 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     const duration = formatDuration(startTime, endTime);
     onSubmit({ content, startTime, endTime, duration });
     setContent('');
+    // Clear image state after submit
+    setSelectedImage(null);
+    setUploadedImageUrl(null);
+    setUploadError(null);
     // Keep startTime and endTime for continuous entry
   };
 
