@@ -272,6 +272,80 @@ class TimelineFormatter:
                     pass
         return ""
 
+    def _parse_json_response(self, response_text: str) -> Optional[dict]:
+        """Robustly parse JSON from Claude response, handling nested structures and truncated responses."""
+        print(f"[DEBUG] Input response_text ({len(response_text)} chars)")
+        try:
+            # Strip markdown code block markers
+            cleaned = response_text.strip()
+            # Remove ```json and ``` markers
+            cleaned = re.sub(r'^```json\s*', '', cleaned, flags=re.MULTILINE)
+            cleaned = re.sub(r'\s*```$', '', cleaned, flags=re.MULTILINE)
+            # Also handle just ``` markers
+            cleaned = re.sub(r'^```\s*', '', cleaned, flags=re.MULTILINE)
+            cleaned = re.sub(r'\s*```$', '', cleaned, flags=re.MULTILINE)
+
+            cleaned = cleaned.strip()
+            print(f"[DEBUG] Cleaned text ({len(cleaned)} chars)")
+
+            # Find the first { and last } to extract the JSON object
+            first_brace = cleaned.find('{')
+            last_brace = cleaned.rfind('}')
+            print(f"[DEBUG] first_brace={first_brace}, last_brace={last_brace}")
+
+            if first_brace == -1 or last_brace == -1 or last_brace < first_brace:
+                print(f"[DEBUG] Could not find JSON boundaries in response")
+                return None
+
+            json_str = cleaned[first_brace:last_brace + 1]
+            print(f"[DEBUG] Extracted JSON ({len(json_str)} chars)")
+
+            # Try to parse JSON
+            try:
+                result = json.loads(json_str)
+                print(f"[DEBUG] Successfully parsed JSON with keys: {list(result.keys())}")
+                return result
+            except json.JSONDecodeError as e:
+                print(f"[DEBUG] JSON decode error: {e}")
+                # Try to fix truncated JSON by trying to complete it
+                print(f"[DEBUG] Attempting to handle truncated response...")
+                result = self._try_parse_truncated_json(json_str)
+                if result:
+                    print(f"[DEBUG] Successfully parsed truncated JSON")
+                    return result
+                return None
+
+        except Exception as e:
+            print(f"[DEBUG] Unexpected error parsing JSON: {e}")
+            return None
+
+    def _try_parse_truncated_json(self, json_str: str) -> Optional[dict]:
+        """Attempt to parse truncated JSON by finding valid prefix."""
+        try:
+            # Try to find valid JSON prefix
+            # Check if we can at least parse part of the response
+            lines = json_str.split('\n')
+            valid_lines = []
+            for line in lines:
+                valid_lines.append(line)
+                try:
+                    test_str = '\n'.join(valid_lines)
+                    result = json.loads(test_str)
+                    # If we can parse it, continue adding more lines
+                    continue
+                except json.JSONDecodeError:
+                    # This line broke the JSON, try without it
+                    valid_lines.pop()
+                    break
+
+            if valid_lines:
+                result = json.loads('\n'.join(valid_lines))
+                print(f"[DEBUG] Recovered JSON with {len(result)} keys from {len(valid_lines)} lines")
+                return result
+        except Exception as e:
+            print(f"[DEBUG] Failed to parse truncated JSON: {e}")
+        return None
+
     def get_prompt_for_both_days(
         self,
         yesterday_entries: list[dict],
@@ -349,22 +423,27 @@ Return a JSON object with this structure:
 ```json
 {{
   "yesterday": [
-    {{"type": "delete", "uid": "yesterday-block-uid-to-delete"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description"}}
+    {{"type": "update", "uid": "block-uid-to-update", "string": "09:00 - 09:47 (**47'**) - activity description"}},
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - new entry description"}}
   ],
   "today": [
-    {{"type": "delete", "uid": "today-block-uid-to-delete"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description"}}
+    {{"type": "update", "uid": "block-uid-to-update", "string": "09:00 - 09:47 (**47'**) - activity description"}},
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - new entry description"}}
   ]
 }}
 ```
 
-Important:
-- Use the original block UIDs for deletion
-- Use the correct timeline_uid for each day's entries
-- All new entries will be added to the Timeline block directly in order
-- DELETE all original entries that need to be replaced
-- Process BOTH yesterday and today's entries
+Operation types:
+- **update**: For entries that already exist. Must include both `uid` and `string`. Use this when the entry just needs content formatting but stays in the same position.
+- **delete**: For entries that need to be removed (use with the original uid).
+- **create**: For NEW entries only (entries that didn't exist before). Only needs `string`.
+
+Important rules:
+1. **CHRONOLOGICAL ORDER IS CRITICAL**: Entries MUST be in strict chronological order by start time!
+2. **TO REORDER**: If an entry needs to move to a different position, use DELETE + CREATE with a new UID
+3. **NO DUPLICATES**: Do not create new entries for time periods that already have entries
+4. **UPDATE FOR SAME POSITION**: If an entry stays in its original position, use UPDATE
+5. Use the correct timeline_uid for each day's entries
 
 Let's format both timelines. Output ONLY valid JSON with this exact structure:
 ```json
@@ -401,6 +480,7 @@ Do not include any explanation or markdown formatting. Just output the JSON obje
         # Get yesterday's last entry end time AND yesterday entries to format
         yesterday_uid = self.roam.get_daily_page_uid(yesterday)
         yesterday_last_end = None
+        yesterday_entries = []  # Initialize to avoid UnboundLocalError
         yesterday_entries_to_format = []
 
         print(f"[DEBUG] Looking for yesterday's page: {self.roam._format_roam_date(yesterday)}")
@@ -424,9 +504,11 @@ Do not include any explanation or markdown formatting. Just output the JSON obje
                             print(f"[DEBUG] Found last end time: {yesterday_last_end}")
                             break
                     # Collect entries that need formatting
+                    # Check for both English () and Chinese （） brackets
+                    # Match patterns like: (**56'**) or （**56'**）
                     yesterday_entries_to_format = [
                         e for e in yesterday_entries
-                        if not re.search(r"\(\*\*\d+'\*\*\)", e["content"])
+                        if not re.search(r"[()（）]\*\*\d+\'\*\*[()（）]", e["content"])
                     ]
                     if yesterday_entries_to_format:
                         print(f"[DEBUG] Yesterday entries needing format: {len(yesterday_entries_to_format)}")
@@ -450,9 +532,10 @@ Do not include any explanation or markdown formatting. Just output the JSON obje
             print(f"  [{i}] UID={entry['uid']}: {entry['content'][:80]}...")
 
         # Collect today's entries that need formatting
+        # Check for both English () and Chinese （） brackets
         today_entries_to_format = [
             e for e in today_entries
-            if not re.search(r"\(\*\*\d+'\*\*\)", e["content"])
+            if not re.search(r"[()（）]\*\*\d+\'\*\*[()（）]", e["content"])
         ]
         if today_entries_to_format:
             print(f"[DEBUG] Today entries needing format: {len(today_entries_to_format)}")
@@ -476,10 +559,10 @@ Do not include any explanation or markdown formatting. Just output the JSON obje
         print(f"Using model: {model}")
 
         try:
-            # Force JSON output without thinking
+            # Force JSON output without thinking - use higher max_tokens for long responses
             response = anthropic_client.messages.create(
                 model=model,
-                max_tokens=4096,
+                max_tokens=16384,
                 system="You are a JSON-only response agent. Always output valid JSON in the exact format requested. Do not include any explanation, thinking, or markdown formatting outside the JSON. Start your response directly with { and end with }.",
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -519,23 +602,11 @@ Do not include any explanation or markdown formatting. Just output the JSON obje
 
             print(f"\nClaude response:\n{response_text[:500]}...")
 
-            # Parse JSON from response
-            json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-                print(f"\n[DEBUG] Parsed JSON: {json_str}")
-                result = json.loads(json_str)
-            else:
-                # Try to find JSON without code blocks
-                json_match = re.search(r"\{[^{}]*\"(yesterday|today)\"[^{}]*\}", response_text, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                    print(f"\n[DEBUG] Parsed JSON (no code block): {json_str}")
-                    result = json.loads(json_str)
-                else:
-                    print("[ERROR] Could not parse actions from response")
-                    print(f"[DEBUG] Full response: {response_text}")
-                    return False
+            # Parse JSON from response - use robust parsing for long responses
+            result = self._parse_json_response(response_text)
+            if not result:
+                print("[ERROR] Could not parse actions from response")
+                return False
 
             # Process both yesterday and today's actions
             all_actions = []
@@ -594,10 +665,28 @@ Do not include any explanation or markdown formatting. Just output the JSON obje
             return
 
         # Separate deletes and creates
-        deletes = [a for a in actions if a.get("type") == "delete"]
+        # Separate action types
+        updates = [a for a in actions if a.get("type") == "update"]
         creates = [a for a in actions if a.get("type") == "create"]
+        deletes = [a for a in actions if a.get("type") == "delete"]
 
-        # Execute deletes in batch
+        # Execute updates in batch (preferred method - preserves block UID)
+        if updates:
+            print(f"    Updating {len(updates)} {day_name} entries...")
+            roam_updates = [
+                {
+                    "action": "update-block",
+                    "block": {"uid": a["uid"], "string": a["string"]}
+                }
+                for a in updates
+            ]
+            try:
+                self.roam.write("batch-actions", actions=roam_updates)
+                print(f"    [OK] Updated {len(updates)} {day_name} entries")
+            except Exception as e:
+                print(f"    [ERROR] Update failed: {e}")
+
+        # Execute deletes in batch (only if update is not possible)
         if deletes:
             print(f"    Deleting {len(deletes)} {day_name} entries...")
             roam_deletes = [
