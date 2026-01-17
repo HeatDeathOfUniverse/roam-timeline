@@ -21,8 +21,11 @@ import sys
 import json
 import re
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+# Default to UTC+8 (Beijing Time) if not specified
+TZ_HOURS = int(os.environ.get("TZ_HOURS", 8))
 
 # Import Anthropic for Claude SDK
 try:
@@ -204,13 +207,15 @@ class RoamClient:
 
 
 def get_today_date() -> datetime:
-    """Get today's date in local timezone (UTC+8)."""
-    return datetime.now()
+    """Get today's date in local timezone (default UTC+8 for Beijing)."""
+    utc_now = datetime.now(timezone.utc)
+    local_tz = timezone(timedelta(hours=TZ_HOURS))
+    return utc_now.astimezone(local_tz).replace(tzinfo=None)
 
 
 def get_yesterday_date() -> datetime:
-    """Get yesterday's date."""
-    return datetime.now() - timedelta(days=1)
+    """Get yesterday's date in local timezone."""
+    return get_today_date() - timedelta(days=1)
 
 
 def parse_time_to_minutes(time_str: str) -> int:
@@ -377,17 +382,32 @@ Let's format the timeline:"""
         yesterday_uid = self.roam.get_daily_page_uid(yesterday)
         yesterday_last_end = None
 
+        print(f"[DEBUG] Looking for yesterday's page: {self.roam._format_roam_date(yesterday)}")
+        print(f"[DEBUG] Yesterday UID: {yesterday_uid}")
+
         if yesterday_uid:
             yesterday_timeline_uid = self.roam.find_timeline_block_uid(yesterday_uid)
+            print(f"[DEBUG] Yesterday Timeline UID: {yesterday_timeline_uid}")
             if yesterday_timeline_uid:
                 yesterday_entries = self.roam.get_timeline_entries(yesterday_timeline_uid)
+                print(f"[DEBUG] Yesterday entries count: {len(yesterday_entries)}")
                 if yesterday_entries:
+                    print("[DEBUG] Yesterday entries:")
+                    for i, entry in enumerate(yesterday_entries):
+                        print(f"  [{i}] UID={entry['uid']}: {entry['content'][:80]}...")
                     # Find last entry and extract end time
                     for entry in reversed(yesterday_entries):
                         match = re.search(r"(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})", entry["content"])
                         if match:
                             yesterday_last_end = match[2]
+                            print(f"[DEBUG] Found last end time: {yesterday_last_end}")
                             break
+                else:
+                    print("[DEBUG] No entries found in yesterday's Timeline")
+            else:
+                print("[DEBUG] No Timeline block found in yesterday's page")
+        else:
+            print("[DEBUG] Yesterday's page not found")
 
         print(f"Yesterday's last end time: {yesterday_last_end}")
 
