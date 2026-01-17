@@ -105,16 +105,24 @@ class RoamClient:
 
     def get_daily_page_uid(self, date: datetime) -> Optional[str]:
         """Get the UID of a daily notes page."""
-        # Roam daily notes format: Daily/YYYY-MM-DD
-        page_title = f"Daily/{date.strftime('%Y-%m-%d')}"
+        # Roam daily notes format: "January 17th, 2026"
+        page_title = self._format_roam_date(date)
         query = f"""[:find ?uid :where [?p :node/title ?title] [?p :block/uid ?uid] [(= ?title "{page_title}")]]"""
         try:
             result = self.query(query)
             if result.get("result") and len(result["result"]) > 0:
                 return result["result"][0][0]
-        except Exception:
-            pass
+            else:
+                print(f"  [DEBUG] Page not found: '{page_title}'")
+        except Exception as e:
+            print(f"  [DEBUG] Error finding page '{page_title}': {e}")
         return None
+
+    def _format_roam_date(self, date: datetime) -> str:
+        """Format date as Roam daily note title: 'January 17th, 2026'."""
+        day = date.day
+        suffix = "th" if 4 <= day <= 20 or 24 <= day <= 30 else ["st", "nd", "rd"][day % 10 - 1]
+        return f"{date.strftime('%B')} {day}{suffix}, {date.year}"
 
     def find_timeline_block_uid(self, page_uid: str) -> Optional[str]:
         """Find the Timeline block UID under a page."""
