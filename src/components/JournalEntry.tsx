@@ -13,6 +13,7 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
   const [content, setContent] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+  const [, setTick] = useState(0); // Force re-render every second
 
   // Set initial start time when it becomes available
   useEffect(() => {
@@ -27,6 +28,14 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
       setEndTime(currentTime);
     }
   }, [currentTime]);
+
+  // Tick every second to update elapsed time display
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Calculate time elapsed since last entry (in HH:MM:SS format)
   const getElapsedTime = () => {
