@@ -469,72 +469,46 @@ Let's format both timelines:"""
         print(f"Using model: {model}")
 
         try:
-            # Disable thinking by using a config dict
             response = anthropic_client.messages.create(
                 model=model,
                 max_tokens=4096,
-                config={"thinking": {"type": "disabled"}},
                 messages=[{"role": "user", "content": prompt}],
             )
 
             print(f"[DEBUG] Response type: {type(response)}")
             print(f"[DEBUG] Response id: {getattr(response, 'id', 'N/A')}")
-            print(f"[DEBUG] Stop reason: {getattr(response, 'stop_reason', 'N/A')}")
+            print(f"[DEBUG] Response content length: {len(response.content) if hasattr(response, 'content') else 0}")
 
-            # Handle different SDK response formats
+            # Extract response text from content blocks
             response_text = ""
+            thinking_text = ""
 
             if hasattr(response, 'content'):
-                print(f"[DEBUG] Response content type: {type(response.content)}")
-                print(f"[DEBUG] Response content length: {len(response.content)}")
-
-                # Try to extract text from content
-                text_blocks = []
                 for i, block in enumerate(response.content):
                     block_type = type(block).__name__
-                    print(f"[DEBUG] Block {i}: {block_type}, type attr: {getattr(block, 'type', 'N/A')}")
+                    print(f"[DEBUG] Block {i}: {block_type}")
 
-                    # Collect all text blocks (skip thinking)
-                    if hasattr(block, 'type'):
-                        if block.type == 'text' and hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                            print(f"[DEBUG] Found text block: {block.text[:100] if block.text else 'EMPTY'}...")
-                        elif block.type == 'thinking':
-                            print(f"[DEBUG] ThinkingBlock detected, checking for content...")
-                            # Try to extract thinking content
-                            if hasattr(block, 'thinking'):
-                                print(f"[DEBUG] ThinkingBlock has 'thinking' attr: {type(block.thinking)}")
-                                # The thinking content might be a list or string
-                                if hasattr(block.thinking, 'data'):
-                                    thinking_data = block.thinking.data
-                                    if isinstance(thinking_data, str):
-                                        text_blocks.append(thinking_data)
-                                        print(f"[DEBUG] Extracted thinking: {thinking_data[:100]}...")
-                                    elif isinstance(thinking_data, list):
-                                        thinking_text = " ".join(str(d) for d in thinking_data)
-                                        text_blocks.append(thinking_text)
-                                        print(f"[DEBUG] Extracted thinking list: {thinking_text[:100]}...")
-                        else:
-                            print(f"[DEBUG] Unknown block type: {block.type}")
-                    elif hasattr(block, 'text'):
-                        # Old format
-                        text_blocks.append(block.text)
-                        print(f"[DEBUG] Found text attr: {block.text[:100] if block.text else 'EMPTY'}...")
+                    if hasattr(block, 'type') and block.type == 'text':
+                        # Text block
+                        response_text = getattr(block, 'text', '') or ''
+                        print(f"[DEBUG] Found text block: {response_text[:200] if response_text else 'EMPTY'}...")
+                    elif hasattr(block, 'thinking'):
+                        # Thinking block - extract thinking content
+                        thinking_str = block.thinking if isinstance(block.thinking, str) else str(block.thinking)
+                        thinking_text += thinking_str
+                        print(f"[DEBUG] Found thinking block: {thinking_str[:200]}...")
 
-                # Join all text blocks
-                response_text = "".join(text_blocks)
-                print(f"[DEBUG] Final response text length: {len(response_text)}")
-
-            elif hasattr(response, 'text'):
-                # Old SDK format
-                response_text = response.text
-                print(f"[DEBUG] Using response.text directly")
+            # If no text block, use thinking content as response
+            if not response_text and thinking_text:
+                print(f"[DEBUG] Using thinking content as response")
+                response_text = thinking_text
 
             if not response_text:
                 print("[ERROR] No text content in response")
+                print(f"[DEBUG] Full response: {response}")
                 return False
 
-            print(f"\nClaude response:\n{response_text}")
+            print(f"\nClaude response:\n{response_text[:500]}...")
 
             # Parse JSON from response
             json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
