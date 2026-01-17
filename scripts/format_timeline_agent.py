@@ -192,9 +192,11 @@ class RoamClient:
                         "block": {"uid": action.get("uid")}
                     })
                 elif action_type == "create":
+                    # Support both "last" and numeric order
+                    order = action.get("order", "last")
                     roam_actions.append({
                         "action": "create-block",
-                        "location": {"parent-uid": action.get("parent_uid"), "order": "last"},
+                        "location": {"parent-uid": action.get("parent_uid"), "order": order},
                         "block": {"string": action.get("string")}
                     })
 
@@ -401,26 +403,30 @@ HH:MM - HH:MM (**duration**) - activity description
    - Entries about today (Jan 17th) go ONLY in today's JSON array
    - If a time reference crosses days (e.g., "昨晚上两点半睡到今天早上8点半"), put the overnight part in yesterday and the morning part in today
 
-3. **UPDATE EXISTING**: Use "update" with the original UID to modify content
-4. **DELETE DUPLICATES**: If entries are out of order or duplicated, use "delete"
-5. **CREATE NEW**: Only use "create" for truly new entries not in the original list
+3. **COMPLETE REBUILD**: All existing entries will be DELETED and recreated in correct order
+   - Do NOT use UIDs - just output the new entries in correct order
+   - The first entry has order: 0, second has order: 1, etc.
 
 ## Output Format
 
 Return JSON with exactly two keys: "yesterday" and "today"
+Each entry needs: "string" (the formatted timeline entry) and "order" (position 0, 1, 2...)
 
 ```json
 {{
   "yesterday": [
-    {{"type": "update", "uid": "original-uid", "string": "HH:MM - HH:MM (**XX'**) - description"}},
-    {{"type": "delete", "uid": "original-uid-to-remove"}}
+    {{"string": "00:00 - 01:37 (**1h37'**) - activity description", "order": 0}},
+    {{"string": "01:37 - 02:33 (**56'**) - activity description", "order": 1}},
+    {{"string": "02:33 - 08:30 (**5h57'**) - activity description", "order": 2}}
   ],
   "today": [
-    {{"type": "update", "uid": "original-uid", "string": "HH:MM - HH:MM (**XX'**) - description"}},
-    {{"type": "create", "string": "HH:MM - HH:MM (**XX'**) - new description"}}
+    {{"string": "08:30 - 09:00 (**30'**) - activity description", "order": 0}}
   ]
 }}
 ```
+
+Important: Output ALL entries in strict chronological order!
+The order field indicates the position (0, 1, 2, 3...) in the timeline.
 
 Output ONLY valid JSON starting with {{ and ending with }}}}."""
 
@@ -629,62 +635,65 @@ Output ONLY valid JSON starting with {{ and ending with }}}}."""
         timeline_uid: Optional[str],
         day_name: str
     ):
-        """Execute actions for a single day."""
+        """Rebuild timeline for a single day: delete all old, create all new in correct order."""
         if not timeline_uid:
             print(f"  [WARN] No timeline UID for {day_name}, skipping")
             return
 
-        # Separate deletes and creates
-        # Separate action types
-        updates = [a for a in actions if a.get("type") == "update"]
-        creates = [a for a in actions if a.get("type") == "create"]
-        deletes = [a for a in actions if a.get("type") == "delete"]
+        if not actions:
+            print(f"  [WARN] No actions for {day_name}, skipping")
+            return
 
-        # Execute updates in batch (preferred method - preserves block UID)
-        if updates:
-            print(f"    Updating {len(updates)} {day_name} entries...")
-            roam_updates = [
-                {
-                    "action": "update-block",
-                    "block": {"uid": a["uid"], "string": a["string"]}
-                }
-                for a in updates
-            ]
-            try:
-                self.roam.write("batch-actions", actions=roam_updates)
-                print(f"    [OK] Updated {len(updates)} {day_name} entries")
-            except Exception as e:
-                print(f"    [ERROR] Update failed: {e}")
+        # Extract entries from Claude response
+        entries = []
+        for action in actions:
+            if "string" in action and "order" in action:
+                entries.append({
+                    "string": action["string"],
+                    "order": action["order"]
+                })
 
-        # Execute deletes in batch (only if update is not possible)
-        if deletes:
-            print(f"    Deleting {len(deletes)} {day_name} entries...")
-            roam_deletes = [
-                {"action": "delete-block", "block": {"uid": a["uid"]}}
-                for a in deletes
-            ]
-            try:
-                self.roam.write("batch-actions", actions=roam_deletes)
-                print(f"    [OK] Deleted {len(deletes)} {day_name} entries")
-            except Exception as e:
-                print(f"    [ERROR] Delete failed: {e}")
+        if not entries:
+            print(f"  [WARN] No valid entries for {day_name}")
+            return
 
-        # Execute creates in batch
-        if creates:
-            print(f"    Creating {len(creates)} {day_name} entries...")
-            roam_creates = [
-                {
-                    "action": "create-block",
-                    "location": {"parent-uid": timeline_uid, "order": "last"},
-                    "block": {"string": a["string"]}
-                }
-                for a in creates
-            ]
-            try:
-                self.roam.write("batch-actions", actions=roam_creates)
-                print(f"    [OK] Created {len(creates)} {day_name} entries")
-            except Exception as e:
-                print(f"    [ERROR] Create failed: {e}")
+        # Sort by order to ensure correct sequence
+        entries.sort(key=lambda x: x.get("order", 0))
+        print(f"  [DEBUG] {day_name.capitalize()} entries to create: {len(entries)}")
+
+        # Step 1: Delete all existing entries (we'll rebuild the timeline)
+        # Get all entries from the timeline to find UIDs to delete
+        existing_entries = self.roam.get_timeline_entries(timeline_uid)
+        if existing_entries:
+            delete_uids = [e["uid"] for e in existing_entries]
+            if delete_uids:
+                print(f"    Deleting {len(delete_uids)} existing {day_name} entries...")
+                roam_deletes = [
+                    {"action": "delete-block", "block": {"uid": uid}}
+                    for uid in delete_uids
+                ]
+                try:
+                    self.roam.write("batch-actions", actions=roam_deletes)
+                    print(f"    [OK] Deleted {len(delete_uids)} {day_name} entries")
+                except Exception as e:
+                    print(f"    [ERROR] Delete failed: {e}")
+
+        # Step 2: Create all new entries in correct order
+        print(f"    Creating {len(entries)} new {day_name} entries in order...")
+        roam_creates = []
+        for entry in entries:
+            order = entry.get("order", "last")
+            roam_creates.append({
+                "action": "create-block",
+                "location": {"parent-uid": timeline_uid, "order": order},
+                "block": {"string": entry["string"]}
+            })
+
+        try:
+            self.roam.write("batch-actions", actions=roam_creates)
+            print(f"    [OK] Created {len(entries)} {day_name} entries")
+        except Exception as e:
+            print(f"    [ERROR] Create failed: {e}")
 
 
 def main():
