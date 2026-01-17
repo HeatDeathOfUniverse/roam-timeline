@@ -16,6 +16,7 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   const dropdownRef = useRef<HTMLDivElement>(null);
   const expandedBySearchRef = useRef(false);
   const justSelectedRef = useRef(false);
+  const manuallyClosedRef = useRef(false);
 
   // Close dropdown function
   const closeDropdown = useCallback(() => {
@@ -70,8 +71,11 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   useEffect(() => {
     const hasSearchQuery = searchQuery.trim().length > 0;
 
-    // If was just selected, don't auto-expand
-    if (justSelectedRef.current) {
+    // If was just selected or manually closed, don't auto-expand
+    if (justSelectedRef.current || manuallyClosedRef.current) {
+      // Reset the flag if this is a new search (user typed more)
+      justSelectedRef.current = false;
+      manuallyClosedRef.current = false;
       return;
     }
 
@@ -92,6 +96,7 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        manuallyClosedRef.current = true; // Mark as manually closed
         closeDropdown();
       }
     };
