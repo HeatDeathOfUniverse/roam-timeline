@@ -1,0 +1,458 @@
+#!/usr/bin/env python3
+"""
+Format Daily Timeline Agent
+
+This script runs on GitHub Actions to automatically format daily journal timeline
+entries in Roam Research using Claude AI.
+
+Usage:
+    python format_timeline_agent.py
+
+Environment Variables Required:
+    - ANTHROPIC_API_KEY: Anthropic API key
+    - ANTHROPIC_BASE_URL: Anthropic API base URL (optional)
+    - ANTHROPIC_MODEL: Model to use (optional, default: claude-sonnet-4-20250514)
+    - ROAM_API_TOKEN: Roam Research API token
+    - ROAM_GRAPH_NAME: Roam graph name
+"""
+
+import os
+import sys
+import json
+import re
+import requests
+from datetime import datetime, timedelta
+from typing import Optional
+
+# Import Anthropic for Claude SDK
+try:
+    from anthropic import Anthropic
+except ImportError:
+    print("anthropic package not installed. Install with: pip install anthropic")
+    sys.exit(1)
+
+
+# Roam API Configuration
+ROAM_API_BASE = "https://api.roamresearch.com/api/graph"
+PEERS = [
+    "peer-24.api.roamresearch.com:3001",
+    "peer-25.api.roamresearch.com:3001",
+    "peer-23.api.roamresearch.com:3001",
+]
+
+
+class RoamClient:
+    """Client for interacting with Roam Research API."""
+
+    def __init__(self, graph_name: str, api_token: str):
+        self.graph_name = graph_name
+        self.api_token = api_token
+
+    def _make_request(self, endpoint: str, data: dict, use_peers: bool = False) -> dict:
+        """Make a request to Roam API with fallback to peer servers."""
+        url = f"{ROAM_API_BASE}/{self.graph_name}/{endpoint}"
+        urls_to_try = [url] + (
+            [f"https://{p}/api/graph/{self.graph_name}/{endpoint}" for p in PEERS]
+            if use_peers else []
+        )
+
+        headers = {
+            "Authorization": f"Bearer {self.api_token}",
+            "x-authorization": f"Bearer {self.api_token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        body = json.dumps(data)
+
+        last_error = ""
+        for current_url in urls_to_try:
+            try:
+                response = requests.post(
+                    current_url,
+                    headers=headers,
+                    data=body,
+                    timeout=30,
+                )
+                if response.status_code == 308:
+                    location = response.headers.get("location")
+                    if location:
+                        redirect_response = requests.post(
+                            location, headers=headers, data=body, timeout=30
+                        )
+                        if redirect_response.ok:
+                            return redirect_response.json()
+                    continue
+
+                if response.ok:
+                    return response.json()
+
+                if response.status_code == 404:
+                    continue
+
+                last_error = response.text
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        raise Exception(f"Roam API error: {last_error}")
+
+    def query(self, query: str) -> dict:
+        """Execute a Datalog query."""
+        return self._make_request("q", {"query": query, "args": []})
+
+    def write(self, action: str, **data) -> dict:
+        """Execute a write action."""
+        return self._make_request("write", {"action": action, **data}, use_peers=True)
+
+    def get_daily_page_uid(self, date: datetime) -> Optional[str]:
+        """Get the UID of a daily notes page."""
+        # Roam daily notes format: Daily/YYYY-MM-DD
+        page_title = f"Daily/{date.strftime('%Y-%m-%d')}"
+        query = f"""[:find ?uid :where [?p :node/title ?title] [?p :block/uid ?uid] [(= ?title "{page_title}")]]"""
+        try:
+            result = self.query(query)
+            if result.get("result") and len(result["result"]) > 0:
+                return result["result"][0][0]
+        except Exception:
+            pass
+        return None
+
+    def find_timeline_block_uid(self, page_uid: str) -> Optional[str]:
+        """Find the Timeline block UID under a page."""
+        query = f"""[:find ?uid ?str :where
+          [?b :block/uid "{page_uid}"]
+          [?b :block/children ?c]
+          [?c :block/uid ?uid]
+          [?c :block/string ?str]
+          [(clojure.string/includes? ?str "Timeline")]]"""
+        try:
+            result = self.query(query)
+            if result.get("result") and len(result["result"]) > 0:
+                return result["result"][0][0]
+        except Exception:
+            pass
+        return None
+
+    def get_timeline_entries(self, timeline_uid: str) -> list[dict]:
+        """Get all entries under the Timeline block."""
+        query = f"""[:find (pull ?child [:block/uid :block/string :block/order]) :where
+          [?b :block/uid "{timeline_uid}"]
+          [?b :block/children ?child]]"""
+        try:
+            result = self.query(query)
+            blocks = result.get("result", [])
+            entries = []
+            for item in blocks:
+                block = item[0] if item else {}
+                string = block.get(":block/string", "")
+                uid = block.get(":block/uid", "")
+                order = block.get(":block/order", 0)
+                entries.append({
+                    "uid": uid,
+                    "content": string,
+                    "order": order,
+                })
+            return sorted(entries, key=lambda x: x.get("order", 0))
+        except Exception:
+            return []
+
+    def delete_block(self, block_uid: str) -> bool:
+        """Delete a block."""
+        try:
+            self.write("deleteBlock", block={"uid": block_uid})
+            return True
+        except Exception:
+            return False
+
+    def create_block(self, parent_uid: str, string: str, order: int = "last") -> Optional[str]:
+        """Create a new block under a parent."""
+        try:
+            self.write(
+                "create-block",
+                location={"parent-uid": parent_uid, "order": order},
+                block={"string": string, "uid": f"entry-{datetime.now().timestamp()}"},
+            )
+            return True
+        except Exception:
+            return False
+
+
+def get_today_date() -> datetime:
+    """Get today's date in local timezone (UTC+8)."""
+    return datetime.now()
+
+
+def get_yesterday_date() -> datetime:
+    """Get yesterday's date."""
+    return datetime.now() - timedelta(days=1)
+
+
+def parse_time_to_minutes(time_str: str) -> int:
+    """Parse HH:MM to minutes since midnight."""
+    match = re.match(r"(\d{2}):(\d{2})", time_str)
+    if match:
+        hours = int(match[1])
+        minutes = int(match[2])
+        return hours * 60 + minutes
+    return 0
+
+
+def format_duration(minutes: int) -> str:
+    """Format duration in minutes to display format."""
+    if minutes < 60:
+        return f"{minutes}'"
+    else:
+        hours = minutes // 60
+        mins = minutes % 60
+        return f"{hours}h{mins:02d}'"
+
+
+def calculate_duration(start: str, end: str) -> int:
+    """Calculate duration in minutes between two times."""
+    start_minutes = parse_time_to_minutes(start)
+    end_minutes = parse_time_to_minutes(end)
+    diff = end_minutes - start_minutes
+    if diff < 0:
+        diff += 24 * 60  # Handle midnight crossing
+    return diff
+
+
+class TimelineFormatter:
+    """Handles timeline formatting logic."""
+
+    def __init__(self, roam_client: RoamClient):
+        self.roam = roam_client
+        self.skill_md = self._load_skill_guide()
+
+    def _load_skill_guide(self) -> str:
+        """Load the format-daily-timeline skill guide."""
+        skill_path = os.path.join(
+            os.path.dirname(__file__), "..", "doc", "format-daily-timeline", "SKILL.md"
+        )
+        # Also check current directory for skill file
+        alt_path = os.path.join(os.path.dirname(__file__), "..", "SKILL.md")
+
+        for path in [skill_path, alt_path]:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        return f.read()
+                except Exception:
+                    pass
+        return ""
+
+    def get_prompt_for_today(self, today_entries: list[dict], yesterday_last_end: Optional[str]) -> str:
+        """Generate the Claude prompt for formatting today's timeline."""
+
+        entries_text = "\n".join([
+            f"- [{e['uid']}] {e['content']}" for e in today_entries
+        ]) if today_entries else "(No existing entries)"
+
+        yesterday_info = ""
+        if yesterday_last_end:
+            yesterday_info = f"Yesterday's last entry ended at: {yesterday_last_end}"
+        else:
+            yesterday_info = "(Could not find yesterday's last entry)"
+
+        prompt = f"""You are a specialized agent for formatting daily journal timeline entries in Roam Research.
+
+## Background
+You are formatting today's journal timeline entries. Each timestamp represents "what happened from the previous timestamp to this timestamp".
+
+{yesterday_info}
+
+## Current Timeline Entries
+```
+{entries_text}
+```
+
+## Standard Format
+All timeline entries should follow this pattern:
+```
+HH:MM - HH:MM (**duration**) - activity description
+```
+
+Where:
+- Start time and end time in 24-hour format (HH:MM)
+- Duration with bold formatting: (**XX'**) or (**XhXX'**)
+- Activity description after the dash (-)
+
+## Rules
+
+1. **First Entry Handling**: If today's first entry has a timestamp (e.g., "09:00 some activity"), you need to calculate its start time:
+   - Use yesterday's last entry end time as the start
+   - If the content mentions time ranges (e.g., "昨晚上两点半睡到今天早上8点半"), split into separate entries
+
+2. **Duration Calculation**: For each entry, calculate duration as (end_time - start_time):
+   - If < 60 minutes: use format (**XX'**)
+   - If >= 60 minutes: use format (**XhXX'**)
+
+3. **Summary Entries**: Entries that mention multiple time points (e.g., "15:47 上午测试完...到现在") should be SPLIT into individual timeline items and the original entry DELETED.
+
+4. **Time Format Conversion**:
+   - Decimal times like "1.06" → 1 hour 6 minutes → 13:06
+   - Chinese times like "11点半" → 11:30, "下午1点10分" → 13:10
+
+5. **Cross-Day Continuity**: Start from yesterday's last end time, then process today's entries sequentially.
+
+## Output Format
+
+Return a JSON object with this structure:
+```json
+{{
+  "actions": [
+    {{"type": "delete", "uid": "block-uid-to-delete"}},
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description", "after_uid": "timeline-block-uid"}}
+  ]
+}}
+```
+
+Important:
+- Use the original block UIDs for deletion
+- For new entries, use the Timeline block UID as the reference point (use "last" order)
+- For splitting summary entries, create new entries and mark the original for deletion
+- If the last entry only has a timestamp (no content after), this means the previous activity continued - convert it to a range entry
+
+Let's format the timeline:"""
+
+        return prompt
+
+    def format_today(self) -> bool:
+        """Format today's timeline entries."""
+        today = get_today_date()
+        yesterday = get_yesterday_date()
+
+        # Get today's page UID
+        today_uid = self.roam.get_daily_page_uid(today)
+        if not today_uid:
+            print(f"Today's page not found: Daily/{today.strftime('%Y-%m-%d')}")
+            return False
+
+        print(f"Found today's page: {today_uid}")
+
+        # Find Timeline block
+        timeline_uid = self.roam.find_timeline_block_uid(today_uid)
+        if not timeline_uid:
+            print("Timeline block not found")
+            return False
+
+        print(f"Found Timeline block: {timeline_uid}")
+
+        # Get yesterday's last entry end time
+        yesterday_uid = self.roam.get_daily_page_uid(yesterday)
+        yesterday_last_end = None
+
+        if yesterday_uid:
+            yesterday_timeline_uid = self.roam.find_timeline_block_uid(yesterday_uid)
+            if yesterday_timeline_uid:
+                yesterday_entries = self.roam.get_timeline_entries(yesterday_timeline_uid)
+                if yesterday_entries:
+                    # Find last entry and extract end time
+                    for entry in reversed(yesterday_entries):
+                        match = re.search(r"(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})", entry["content"])
+                        if match:
+                            yesterday_last_end = match[2]
+                            break
+
+        print(f"Yesterday's last end time: {yesterday_last_end}")
+
+        # Get today's entries
+        today_entries = self.roam.get_timeline_entries(timeline_uid)
+        if not today_entries:
+            print("No entries to format")
+            return False
+
+        print(f"Found {len(today_entries)} entries to process")
+
+        # Generate prompt for Claude
+        prompt = self.get_prompt_for_today(today_entries, yesterday_last_end)
+
+        # Call Claude
+        anthropic_client = Anthropic(
+            api_key=os.environ.get("ANTHROPIC_API_KEY"),
+            base_url=os.environ.get("ANTHROPIC_BASE_URL") or None,
+        )
+
+        model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+        print(f"Using model: {model}")
+
+        try:
+            response = anthropic_client.messages.create(
+                model=model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            response_text = response.content[0].text
+            print(f"\nClaude response:\n{response_text[:500]}...")
+
+            # Parse JSON from response
+            json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
+            if json_match:
+                actions = json.loads(json_match.group(1)).get("actions", [])
+            else:
+                # Try to find JSON without code blocks
+                json_match = re.search(r"\{[^{}]*\"actions\"[^{}]*\}", response_text, re.DOTALL)
+                if json_match:
+                    actions = json.loads(json_match.group(0)).get("actions", [])
+                else:
+                    print("Could not parse actions from response")
+                    return False
+
+            # Execute actions
+            print(f"\nExecuting {len(actions)} actions...")
+            for action in actions:
+                action_type = action.get("type")
+                if action_type == "delete":
+                    uid = action.get("uid")
+                    if uid:
+                        print(f"  Deleting: {uid}")
+                        self.roam.delete_block(uid)
+                elif action_type == "create":
+                    string = action.get("string")
+                    after_uid = action.get("after_uid")
+                    if string:
+                        print(f"  Creating: {string[:50]}...")
+                        self.roam.create_block(after_uid or timeline_uid, string)
+
+            print("Done!")
+            return True
+
+        except Exception as e:
+            print(f"Error calling Claude: {e}")
+            return False
+
+
+def main():
+    """Main entry point."""
+    print("=" * 50)
+    print("Format Daily Timeline Agent")
+    print("=" * 50)
+    print(f"Run time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
+
+    # Check required environment variables
+    required_vars = ["ANTHROPIC_API_KEY", "ROAM_API_TOKEN", "ROAM_GRAPH_NAME"]
+    missing = [v for v in required_vars if not os.environ.get(v)]
+    if missing:
+        print(f"Error: Missing required environment variables: {', '.join(missing)}")
+        sys.exit(1)
+
+    # Initialize Roam client
+    graph_name = os.environ["ROAM_GRAPH_NAME"]
+    api_token = os.environ["ROAM_API_TOKEN"]
+    roam = RoamClient(graph_name, api_token)
+
+    # Format timeline
+    formatter = TimelineFormatter(roam)
+    success = formatter.format_today()
+
+    if success:
+        print("\nTimeline formatted successfully!")
+        sys.exit(0)
+    else:
+        print("\nFailed to format timeline")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
