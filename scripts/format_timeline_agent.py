@@ -350,11 +350,11 @@ Return a JSON object with this structure:
 {{
   "yesterday": [
     {{"type": "delete", "uid": "yesterday-block-uid-to-delete"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description", "timeline_uid": "yesterday-timeline-uid"}}
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description"}}
   ],
   "today": [
     {{"type": "delete", "uid": "today-block-uid-to-delete"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description", "timeline_uid": "today-timeline-uid"}}
+    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - activity description"}}
   ]
 }}
 ```
@@ -368,12 +368,12 @@ Important:
 
 Let's format both timelines. Output ONLY valid JSON with this exact structure:
 ```json
-{
+{{
   "yesterday": [...],
   "today": [...]
-}
+}}
 ```
-Do not include any explanation or markdown formatting. Just output the JSON object starting with { and ending with }."""
+Do not include any explanation or markdown formatting. Just output the JSON object starting with {{ and ending with }}}}."""
 
         return prompt
 
