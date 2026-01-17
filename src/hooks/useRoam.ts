@@ -1,3 +1,9 @@
+export interface Category {
+  id: string;
+  name: string;
+  children: Category[];
+}
+
 import { useState, useCallback } from 'react';
 import type { JournalEntry, RoamConfig } from '../types';
 import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle } from '../utils/formatter';
@@ -168,6 +174,33 @@ export function useRoam() {
     }
   }, [bffFetch]);
 
+  // Get all categories from Time Categories page
+  const getCategories = useCallback(async (): Promise<Category[]> => {
+    // Query for all blocks under Time Categories page
+    const query = `[:find (pull ?block [:block/uid :block/string]) :where
+      [?page :node/title "Time Categories"]
+      [?block :block/page ?page]]`;
+
+    try {
+      const result = await bffFetch('q', { query });
+      const data = result?.result;
+      if (data && data.length > 0) {
+        const blocks = data.map((item: unknown[]) => item[0]) as Array<{ ':block/uid'?: string; ':block/string'?: string }>;
+        return blocks
+          .filter(b => b[':block/uid'] && b[':block/string'])
+          .map(b => ({
+            id: b[':block/uid']!,
+            name: b[':block/string']!,
+            children: []
+          }));
+      }
+      return [];
+    } catch {
+      console.error('Failed to fetch categories from Roam');
+      return [];
+    }
+  }, [bffFetch]);
+
   // Get the end time of the last entry under Timeline (today, fallback to yesterday)
   const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
     // Try today's page first
@@ -254,5 +287,6 @@ export function useRoam() {
     formatTodayPage,
     getLastEntryEndTime,
     getTimelineEntries,
+    getCategories,
   };
 }

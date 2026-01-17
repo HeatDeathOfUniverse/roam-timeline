@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { JournalEntry as JournalEntryType } from '../types';
 import { formatDuration } from '../utils/formatter';
 import { uploadImage, markdownImage } from '../utils/imageUploader';
+import { CategorySelector } from './CategorySelector';
 
 interface Props {
   onSubmit: (entry: Omit<JournalEntryType, 'id' | 'createdAt'>) => void;
@@ -188,11 +189,17 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
       </div>
 
       <div>
-        <label className="block text-xs text-gray-400 mb-1">内容</label>
+        <div className="flex justify-between items-center mb-1">
+          <label className="block text-xs text-gray-400">内容</label>
+          <CategorySelector
+            onSelect={(tag) => setContent(prev => prev + (prev ? ' ' : '') + tag)}
+            disabled={isLoading}
+          />
+        </div>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="做了什么..."
+          placeholder="做了什么...（点击上方分类可添加标签）"
           className="w-full p-2 bg-gray-700 rounded text-white h-20 resize-none"
           required
         />
