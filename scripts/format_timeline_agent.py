@@ -368,91 +368,61 @@ class TimelineFormatter:
 
         prompt = f"""You are a specialized agent for formatting daily journal timeline entries in Roam Research.
 
-## Background
-You are formatting journal timeline entries for TWO days. Each timestamp represents "what happened from the previous timestamp to this timestamp".
+## IMPORTANT: SEPARATE DAYS STRICTLY
 
-## Yesterday's Timeline
+**YESTERDAY'S ENTRIES** and **TODAY'S ENTRIES** are COMPLETELY SEPARATE timelines!
+- Each timeline has its own block UID (see below)
+- Entries from yesterday should ONLY appear in the yesterday timeline
+- Entries from today should ONLY appear in the today timeline
+- DO NOT mix entries between the two days
+
+## Yesterday's Timeline (January 16th)
+These entries are in the Timeline block with UID: {yesterday_timeline_uid or "N/A"}
 {yesterday_text}
 
-## Today's Timeline
+## Today's Timeline (January 17th)
+These entries are in the Timeline block with UID: {today_timeline_uid}
 {today_text}
 
-Yesterday's last entry ended at: {yesterday_last_end or "(unknown)"}
-
-Yesterday's Timeline block UID: {yesterday_timeline_uid or "N/A"}
-Today's Timeline block UID: {today_timeline_uid}
-
 ## Standard Format
-All timeline entries should follow this pattern:
+All entries must follow this pattern:
 ```
 HH:MM - HH:MM (**duration**) - activity description
 ```
 
-Where:
-- Start time and end time in 24-hour format (HH:MM)
-- Duration with bold formatting: (**XX'**) or (**XhXX'**)
-- Activity description after the dash (-)
+## CRITICAL RULES
 
-## Rules
+1. **STRICT TIME ORDER**: Each entry's start time must be AFTER the previous entry's end time!
+   - Yesterday starts at: 00:00 or the first time mentioned
+   - Today starts after yesterday ends: {yesterday_last_end or "(unknown)"}
 
-1. **First Entry Handling (Yesterday)**: Yesterday's first entry starts at 00:00, unless there's a time reference in the content (e.g., "昨晚上两点半睡到...").
+2. **NO DAY MIXING**:
+   - Entries about yesterday (Jan 16th) go ONLY in yesterday's JSON array
+   - Entries about today (Jan 17th) go ONLY in today's JSON array
+   - If a time reference crosses days (e.g., "昨晚上两点半睡到今天早上8点半"), put the overnight part in yesterday and the morning part in today
 
-2. **First Entry Handling (Today)**: Today's first entry starts from yesterday's last end time. If the content mentions time ranges (e.g., "昨晚上两点半睡到今天早上8点半"), split into separate entries.
-
-3. **Duration Calculation**: For each entry, calculate duration as (end_time - start_time):
-   - If < 60 minutes: use format (**XX'**)
-   - If >= 60 minutes: use format (**XhXX'**)
-
-4. **Summary Entries / Content Time References**: Entries that mention multiple time points should be SPLIT:
-   - Example: "16:29 - 17:10 (**41'**) - 刚刚到17点为止，在上厕所。然后让AI重写了一下..."
-   - This should be split into:
-     - "16:29 - 17:00 (**31'**) - 在上厕所" (content ends at "17点")
-     - "17:00 - 17:10 (**10'**) - 然后让AI重写了一下..."
-   - **IMPORTANT**: Even if the entry is already in standard format, if the CONTENT mentions additional time points (like "17点", "下午1点", "12点过"), you MUST split it and DELETE the original
-
-5. **Time Format Conversion**:
-   - Decimal times like "1.06" → 1 hour 6 minutes → 13:06
-   - Chinese times like "11点半" → 11:30, "下午1点10分" → 13:10
-   - "X点过" → X:00, "X点" → X:00
-
-6. **Replace ALL Entries**: For entries that need formatting (e.g., using Chinese brackets `（）` instead of English `()` or missing duration), you MUST include their UIDs in the delete list. Only keep entries that are already in the correct format AND have no additional time references in the content.
+3. **UPDATE EXISTING**: Use "update" with the original UID to modify content
+4. **DELETE DUPLICATES**: If entries are out of order or duplicated, use "delete"
+5. **CREATE NEW**: Only use "create" for truly new entries not in the original list
 
 ## Output Format
 
-Return a JSON object with this structure:
+Return JSON with exactly two keys: "yesterday" and "today"
+
 ```json
 {{
   "yesterday": [
-    {{"type": "update", "uid": "block-uid-to-update", "string": "09:00 - 09:47 (**47'**) - activity description"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - new entry description"}}
+    {{"type": "update", "uid": "original-uid", "string": "HH:MM - HH:MM (**XX'**) - description"}},
+    {{"type": "delete", "uid": "original-uid-to-remove"}}
   ],
   "today": [
-    {{"type": "update", "uid": "block-uid-to-update", "string": "09:00 - 09:47 (**47'**) - activity description"}},
-    {{"type": "create", "string": "09:00 - 09:47 (**47'**) - new entry description"}}
+    {{"type": "update", "uid": "original-uid", "string": "HH:MM - HH:MM (**XX'**) - description"}},
+    {{"type": "create", "string": "HH:MM - HH:MM (**XX'**) - new description"}}
   ]
 }}
 ```
 
-Operation types:
-- **update**: For entries that already exist. Must include both `uid` and `string`. Use this when the entry just needs content formatting but stays in the same position.
-- **delete**: For entries that need to be removed (use with the original uid).
-- **create**: For NEW entries only (entries that didn't exist before). Only needs `string`.
-
-Important rules:
-1. **CHRONOLOGICAL ORDER IS CRITICAL**: Entries MUST be in strict chronological order by start time!
-2. **TO REORDER**: If an entry needs to move to a different position, use DELETE + CREATE with a new UID
-3. **NO DUPLICATES**: Do not create new entries for time periods that already have entries
-4. **UPDATE FOR SAME POSITION**: If an entry stays in its original position, use UPDATE
-5. Use the correct timeline_uid for each day's entries
-
-Let's format both timelines. Output ONLY valid JSON with this exact structure:
-```json
-{{
-  "yesterday": [...],
-  "today": [...]
-}}
-```
-Do not include any explanation or markdown formatting. Just output the JSON object starting with {{ and ending with }}}}."""
+Output ONLY valid JSON starting with {{ and ending with }}}}."""
 
         return prompt
 
