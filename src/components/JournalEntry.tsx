@@ -28,11 +28,24 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     }
   }, [currentTime]);
 
-  // Calculate time elapsed since last entry
+  // Calculate time elapsed since last entry (in HH:MM:SS format)
   const getElapsedTime = () => {
     if (!initialStartTime || !currentTime) return null;
-    const elapsed = formatDuration(initialStartTime, currentTime);
-    return elapsed;
+
+    const now = new Date();
+    const [startH, startM] = initialStartTime.split(':').map(Number);
+    const startDate = new Date();
+    startDate.setHours(startH, startM, 0, 0);
+
+    let diffMs = now.getTime() - startDate.getTime();
+    if (diffMs < 0) diffMs += 24 * 60 * 60 * 1000; // handle midnight
+
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -51,7 +64,7 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
         <h3 className="font-semibold text-lg">添加日记</h3>
         {getElapsedTime() && (
           <span className="text-sm text-yellow-400">
-            距上次: {getElapsedTime()}
+            已过去 {getElapsedTime()}
           </span>
         )}
       </div>
