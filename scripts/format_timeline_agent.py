@@ -366,9 +366,14 @@ Important:
 - DELETE all original entries that need to be replaced
 - Process BOTH yesterday and today's entries
 
-Let's format both timelines:"""
-
-        return prompt
+Let's format both timelines. Output ONLY valid JSON with this exact structure:
+```json
+{
+  "yesterday": [...],
+  "today": [...]
+}
+```
+Do not include any explanation or markdown formatting. Just output the JSON object starting with { and ending with }.
 
     def format_today(self) -> bool:
         """Format today's timeline entries."""
@@ -469,9 +474,11 @@ Let's format both timelines:"""
         print(f"Using model: {model}")
 
         try:
+            # Force JSON output without thinking
             response = anthropic_client.messages.create(
                 model=model,
                 max_tokens=4096,
+                system="You are a JSON-only response agent. Always output valid JSON in the exact format requested. Do not include any explanation, thinking, or markdown formatting outside the JSON. Start your response directly with { and end with }.",
                 messages=[{"role": "user", "content": prompt}],
             )
 
