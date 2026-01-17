@@ -15,6 +15,7 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const expandedBySearchRef = useRef(false);
+  const justSelectedRef = useRef(false);
 
   // Close dropdown function
   const closeDropdown = useCallback(() => {
@@ -69,13 +70,23 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   useEffect(() => {
     const hasSearchQuery = searchQuery.trim().length > 0;
 
-    if (hasSearchQuery && !isExpanded) {
+    // If was just selected, don't auto-expand
+    if (justSelectedRef.current) {
+      return;
+    }
+
+    if (hasSearchQuery && !isExpanded && !expandedBySearchRef.current) {
       setIsExpanded(true);
       expandedBySearchRef.current = true;
     } else if (!hasSearchQuery && expandedBySearchRef.current && isExpanded) {
       closeDropdown();
     }
   }, [searchQuery, isExpanded, closeDropdown]);
+
+  // Reset justSelected flag when search query changes
+  useEffect(() => {
+    justSelectedRef.current = false;
+  }, [searchQuery]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -142,6 +153,7 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   const handleSelect = (category: Category) => {
     const tag = `#${getTagName(category.name)}`;
     onSelect(tag);
+    justSelectedRef.current = true;
     closeDropdown();
   };
 
@@ -150,7 +162,7 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
       closeDropdown();
     } else {
       setIsExpanded(true);
-      expandedBySearchRef.current = false;
+      expandedBySearchRef.current = false; // Manual open, allow auto-expand later
     }
   };
 
