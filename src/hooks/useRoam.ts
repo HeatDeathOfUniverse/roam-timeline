@@ -113,14 +113,21 @@ export function useRoam() {
   const getTimelineEntries = useCallback(async (): Promise<Array<{ content: string; startTime: string; endTime: string; duration: string }>> => {
     // Try today's page first
     const todayPageTitle = generatePageTitle();
+    console.log('=== getTimelineEntries ===');
+    console.log('Today page:', todayPageTitle);
     const todayEntries = await getTimelineEntriesFromPage(todayPageTitle);
+    console.log('Today entries count:', todayEntries.length);
     if (todayEntries.length > 0) {
+      console.log('Using TODAY entries');
       return todayEntries;
     }
 
     // Fallback to yesterday's page
     const yesterdayPageTitle = getYesterdayPageTitle();
+    console.log('Yesterday page:', yesterdayPageTitle);
     const yesterdayEntries = await getTimelineEntriesFromPage(yesterdayPageTitle);
+    console.log('Yesterday entries count:', yesterdayEntries.length);
+    console.log('Using YESTERDAY entries');
     return yesterdayEntries;
   }, [getTimelineEntriesFromPage]);
 
