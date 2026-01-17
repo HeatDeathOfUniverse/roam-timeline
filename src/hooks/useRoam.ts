@@ -52,9 +52,12 @@ export function useRoam() {
     return response.json();
   }, [config]);
 
-  // Query to find Timeline block UID
+  // Query to find Timeline block UID in today's page
   const findTimelineUid = useCallback(async (): Promise<string | null> => {
+    const pageTitle = generatePageTitle();
     const query = `[:find ?uid ?str :where
+      [?p :node/title "${pageTitle}"]
+      [?b :block/page ?p]
       [?b :block/uid ?uid]
       [?b :block/string ?str]
       [(clojure.string/includes? ?str "Timeline")]]`;
@@ -126,13 +129,14 @@ export function useRoam() {
     }
   }, [bffFetch, findTimelineUid]);
 
-  // Get the end time of the last entry under Timeline
+  // Get the end time of the last entry under Timeline in today's page
   const getLastEntryEndTime = useCallback(async (): Promise<string | null> => {
-    const timelineUid = await findTimelineUid();
-    if (!timelineUid) return null;
-
+    const pageTitle = generatePageTitle();
     const query = `[:find (pull ?child [:block/string :block/order]) :where
-      [?b :block/uid "${timelineUid}"]
+      [?p :node/title "${pageTitle}"]
+      [?b :block/page ?p]
+      [?b :block/uid ?uid]
+      [(clojure.string/includes? ?b :block/string "Timeline")]
       [?b :block/children ?child]]`;
 
     try {
