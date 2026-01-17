@@ -1,16 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import Fuse from 'fuse.js';
 import type { Category } from '../hooks/useRoam';
 
 interface CategorySelectorProps {
   onSelect: (tag: string) => void;
   disabled?: boolean;
+  searchQuery?: string;
 }
 
-export function CategorySelector({ onSelect, disabled }: CategorySelectorProps) {
+export function CategorySelector({ onSelect, disabled, searchQuery = '' }: CategorySelectorProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch categories on mount
   useEffect(() => {
@@ -18,7 +21,6 @@ export function CategorySelector({ onSelect, disabled }: CategorySelectorProps) 
       setIsLoading(true);
       setError(null);
       try {
-        // Get graphName from localStorage (same as useRoam hook)
         const saved = localStorage.getItem('roamConfig');
         const config = saved ? JSON.parse(saved) : null;
         const graphName = config?.graphName;
@@ -40,11 +42,13 @@ export function CategorySelector({ onSelect, disabled }: CategorySelectorProps) 
         setError('无法加载分类');
         // Use fallback categories for demo
         setCategories([
-          { id: '1', name: '工作', children: [] },
-          { id: '2', name: '学习', children: [] },
-          { id: '3', name: '运动', children: [] },
-          { id: '4', name: '休息', children: [] },
-          { id: '5', name: '社交', children: [] },
+          { id: '1', name: '[[工作]]', children: [] },
+          { id: '2', name: '[[学习]]', children: [] },
+          { id: '3', name: '[[运动]]', children: [] },
+          { id: '4', name: '[[休息]]', children: [] },
+          { id: '5', name: '[[社交]]', children: [] },
+          { id: '6', name: '[[P/基于 roam 的计时分析工具]]', children: [] },
+          { id: '7', name: '[[P/黄叔 AI 编程社群/基础课]]', children: [] },
         ]);
       } finally {
         setIsLoading(false);
@@ -54,18 +58,93 @@ export function CategorySelector({ onSelect, disabled }: CategorySelectorProps) 
     fetchCategories();
   }, []);
 
-  // Filter categories based on input (if we add search later)
-  const filteredCategories = categories;
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsExpanded(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Setup Fuse.js for fuzzy search
+  const fuse = useMemo(() => {
+    return new Fuse(categories, {
+      keys: [
+        { name: 'name', weight: 1 },
+      ],
+      threshold: 0.4, // 0.0 = exact match, 1.0 = match anything
+      includeScore: true,
+      includeMatches: true,
+      minMatchCharLength: 1,
+      ignoreLocation: true,
+      findAllMatches: true,
+    });
+  }, [categories]);
+
+  // Search and filter categories
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) {
+      // No search query, show all categories sorted by usage frequency
+      return categories.map(cat => ({
+        category: cat,
+        score: 1,
+        matches: [] as unknown[],
+      }));
+    }
+
+    const results = fuse.search(searchQuery);
+    return results.map(result => ({
+      category: result.item,
+      score: result.score ?? 1,
+      matches: result.matches || [],
+    }));
+  }, [searchQuery, categories, fuse]);
+
+  // Get tag name from category
+  const getTagName = (name: string): string => {
+    // Remove [[ ]] and convert to lowercase for tag
+    return name.replace(/\[\[|\]\]/g, '').toLowerCase();
+  };
+
+  // Highlight matching parts
+  const highlightMatch = (name: string, query: string): React.ReactNode => {
+    if (!query.trim()) return name;
+
+    // Escape regex special characters
+    const escapedQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedQuery})`, 'gi');
+
+    const parts = name.split(regex);
+    return parts.map((part, index) =>
+      regex.test(part) ? (
+        <span key={index} className="bg-yellow-500/30 text-yellow-200 rounded px-0.5">
+          {part}
+        </span>
+      ) : (
+        part
+      )
+    );
+  };
 
   const handleSelect = (category: Category) => {
-    // Convert to #tag format (use lowercase for tag)
-    const tag = `#${category.name.toLowerCase()}`;
+    const tag = `#${getTagName(category.name)}`;
     onSelect(tag);
     setIsExpanded(false);
   };
 
+  // Auto-expand when there's a search query
+  useEffect(() => {
+    if (searchQuery.trim() && !isExpanded) {
+      setIsExpanded(true);
+    }
+  }, [searchQuery, isExpanded]);
+
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       {/* Toggle button */}
       <button
         type="button"
@@ -96,36 +175,54 @@ export function CategorySelector({ onSelect, disabled }: CategorySelectorProps) 
           />
 
           {/* Dropdown content */}
-          <div className="absolute top-full left-0 mt-1 w-48 bg-gray-800 rounded-lg shadow-xl border border-gray-700 z-20 max-h-64 overflow-y-auto">
+          <div className="absolute top-full left-0 mt-1 w-64 bg-gray-800 rounded-lg shadow-xl border border-gray-700 z-20 max-h-80 overflow-y-auto">
+            {/* Search query indicator */}
+            {searchQuery.trim() && (
+              <div className="px-3 py-2 text-xs text-gray-500 border-b border-gray-700 bg-gray-800/50">
+                搜索: "{searchQuery}"
+                <span className="ml-2 text-gray-600">
+                  ({searchResults.length} 个匹配)
+                </span>
+              </div>
+            )}
+
             {error && (
               <div className="p-2 text-xs text-yellow-400 border-b border-gray-700">
                 {error}
               </div>
             )}
 
-            {filteredCategories.length === 0 && !isLoading ? (
+            {searchResults.length === 0 && !isLoading ? (
               <div className="p-3 text-sm text-gray-500 text-center">
-                未找到分类
-                <div className="text-xs mt-1">
-                  请在 Roam 中创建 "Time Categories" 页面
-                </div>
+                未找到匹配的分类
               </div>
             ) : (
               <ul className="py-1">
-                {filteredCategories.map((category) => (
+                {searchResults.map(({ category, score }) => (
                   <li key={category.id}>
                     <button
                       type="button"
                       onClick={() => handleSelect(category)}
                       className="w-full px-3 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
                     >
-                      <span className="w-2 h-2 rounded-full bg-blue-500" />
-                      {category.name}
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        score < 0.3 ? 'bg-green-500' : score < 0.6 ? 'bg-yellow-500' : 'bg-blue-500'
+                      }`} />
+                      <span className="flex-1 truncate">
+                        {highlightMatch(category.name, searchQuery)}
+                      </span>
+                      {/* Show relevance score for debugging */}
+                      {/* <span className="text-xs text-gray-600">{score?.toFixed(2)}</span> */}
                     </button>
                   </li>
                 ))}
               </ul>
             )}
+
+            {/* Footer */}
+            <div className="px-3 py-2 text-xs text-gray-600 border-t border-gray-700 bg-gray-800/50">
+              提示: 输入关键词实时搜索匹配分类
+            </div>
           </div>
         </>
       )}

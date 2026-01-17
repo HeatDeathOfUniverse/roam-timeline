@@ -194,12 +194,13 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
           <CategorySelector
             onSelect={(tag) => setContent(prev => prev + (prev ? ' ' : '') + tag)}
             disabled={isLoading}
+            searchQuery={content}
           />
         </div>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="做了什么...（点击上方分类可添加标签）"
+          placeholder="做了什么...（输入关键词自动搜索匹配分类）"
           className="w-full p-2 bg-gray-700 rounded text-white h-20 resize-none"
           required
         />
