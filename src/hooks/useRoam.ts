@@ -92,9 +92,9 @@ export function useRoam() {
           const str = block[':block/string'];
           console.log('Parsing block:', str);
           if (str) {
-            // Parse format: "09:08 - 09:47 (**39'**) - content" (content may include markdown images)
-            // First extract time and duration, then content is everything after "**duration**) - "
-            const timeMatch = str.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*(.+)$/);
+            // Parse format: "09:08 - 09:47 (**39'**) - content" (content may include markdown images on new lines)
+            // Use [\s\S]*? to match content including newlines and markdown images
+            const timeMatch = str.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
             console.log('Regex match result:', timeMatch);
             if (timeMatch) {
               entries.push({
