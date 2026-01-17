@@ -21,6 +21,16 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [cloudinaryConfigured, setCloudinaryConfigured] = useState(false);
+
+  // Check Cloudinary config on mount
+  useEffect(() => {
+    const cloudinaryConfig = localStorage.getItem('cloudinaryConfig');
+    if (cloudinaryConfig) {
+      const config = JSON.parse(cloudinaryConfig);
+      setCloudinaryConfigured(!!config.cloudName && !!config.preset);
+    }
+  }, []);
 
   // Set initial start time when it becomes available
   useEffect(() => {
@@ -84,14 +94,25 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     }
   };
 
-  // Handle image upload to ImgBB
+  // Handle image upload to Cloudinary
   const handleImageUpload = async () => {
     if (!selectedImage) return;
 
     setIsUploading(true);
     setUploadError(null);
 
-    const result = await uploadImage(selectedImage);
+    // Load Cloudinary config
+    const cloudinaryConfig = JSON.parse(localStorage.getItem('cloudinaryConfig') || '{}');
+    const cloudName = cloudinaryConfig.cloudName || '';
+    const preset = cloudinaryConfig.preset || '';
+
+    if (!cloudName || !preset) {
+      setUploadError('请先在设置中配置 Cloudinary');
+      setIsUploading(false);
+      return;
+    }
+
+    const result = await uploadImage(selectedImage, cloudName, preset);
 
     if (result.success && result.url) {
       setUploadedImageUrl(result.url);
@@ -170,9 +191,15 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
       <div className="space-y-2">
         <label className="block text-xs text-gray-400">添加图片（可选）</label>
 
+        {!cloudinaryConfigured && !selectedImage && (
+          <p className="text-yellow-400 text-xs">
+            请先在设置中配置 Cloudinary 以启用图片上传
+          </p>
+        )}
+
         {!selectedImage && !uploadedImageUrl && (
           <div className="flex items-center gap-2">
-            <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded inline-flex items-center">
+            <label className={`cursor-pointer py-2 px-4 rounded inline-flex items-center ${cloudinaryConfigured ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed'}`}>
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -182,6 +209,7 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
                 accept="image/*"
                 onChange={handleImageChange}
                 className="hidden"
+                disabled={!cloudinaryConfigured}
               />
             </label>
           </div>

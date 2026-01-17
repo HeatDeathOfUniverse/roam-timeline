@@ -1,9 +1,13 @@
 /**
- * Image upload utility using ImgBB (free image hosting)
- * Documentation: https://api.imgbb.com/
+ * Image upload utility using Cloudinary (free tier available)
+ * Sign up for free at: https://cloudinary.com/users/register/free
+ *
+ * Configuration:
+ * - Get your cloud name from Cloudinary Dashboard
+ * - Create an unsigned upload preset in Settings → Upload
  */
 
-const IMGBB_API_URL = 'https://api.imgbb.com/1/upload';
+const CLOUDINARY_UPLOAD_URL = 'https://api.cloudinary.com/v1_1/{cloud_name}/image/upload';
 
 export interface UploadResult {
   success: boolean;
@@ -12,25 +16,25 @@ export interface UploadResult {
 }
 
 /**
- * Upload an image file to ImgBB
+ * Upload an image file to Cloudinary
  * @param file - The image file to upload
- * @param apiKey - ImgBB API key (optional, uses anonymous upload if not provided)
+ * @param cloudName - Your Cloudinary cloud name (get from dashboard)
+ * @param preset - Your Cloudinary unsigned upload preset
  * @returns Promise<UploadResult>
  */
-export async function uploadImage(file: File, apiKey?: string): Promise<UploadResult> {
+export async function uploadImage(file: File, cloudName: string, preset: string): Promise<UploadResult> {
   try {
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('file', file);
+    formData.append('upload_preset', preset);
 
-    // If API key is provided, include it; otherwise uses anonymous upload (limited)
-    if (apiKey) {
-      formData.append('key', apiKey);
-    }
-
-    const response = await fetch(IMGBB_API_URL, {
-      method: 'POST',
-      body: formData,
-    });
+    const response = await fetch(
+      CLOUDINARY_UPLOAD_URL.replace('{cloud_name}', cloudName),
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -39,8 +43,8 @@ export async function uploadImage(file: File, apiKey?: string): Promise<UploadRe
 
     const data = await response.json();
 
-    if (data.data && data.data.url) {
-      return { success: true, url: data.data.url };
+    if (data.secure_url) {
+      return { success: true, url: data.secure_url };
     } else {
       return { success: false, error: 'No URL in response' };
     }
