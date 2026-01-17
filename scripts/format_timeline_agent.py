@@ -475,15 +475,25 @@ Let's format both timelines:"""
                 messages=[{"role": "user", "content": prompt}],
             )
 
+            print(f"[DEBUG] Response type: {type(response)}")
+            print(f"[DEBUG] Response id: {getattr(response, 'id', 'N/A')}")
+            print(f"[DEBUG] Response content type: {type(response.content)}")
+            print(f"[DEBUG] Response content length: {len(response.content)}")
+
             # In Anthropic SDK v0.76.0+, response.content is a list of ContentBlock objects
             response_text = ""
-            for block in response.content:
+            for i, block in enumerate(response.content):
+                print(f"[DEBUG] Block {i}: type={type(block)}, attrs={dir(block)[:5]}")
                 if hasattr(block, 'text'):
                     response_text = block.text
+                    print(f"[DEBUG] Found text: {response_text[:100]}...")
                     break
+                elif hasattr(block, 'type'):
+                    print(f"[DEBUG] Block type: {block.type}")
 
             if not response_text:
-                print("No text content in response")
+                print("[ERROR] No text content in response")
+                print(f"[DEBUG] Full response: {response}")
                 return False
 
             print(f"\nClaude response:\n{response_text}")
