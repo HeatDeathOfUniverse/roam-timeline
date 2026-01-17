@@ -28,6 +28,13 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     }
   }, [currentTime]);
 
+  // Calculate time elapsed since last entry
+  const getElapsedTime = () => {
+    if (!initialStartTime || !currentTime) return null;
+    const elapsed = formatDuration(initialStartTime, currentTime);
+    return elapsed;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!content || !startTime || !endTime) return;
@@ -40,7 +47,14 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
 
   return (
     <form onSubmit={handleSubmit} className="p-4 bg-gray-800 rounded-lg space-y-3">
-      <h3 className="font-semibold text-lg">添加日记</h3>
+      <div className="flex justify-between items-center">
+        <h3 className="font-semibold text-lg">添加日记</h3>
+        {getElapsedTime() && (
+          <span className="text-sm text-yellow-400">
+            距上次: {getElapsedTime()}
+          </span>
+        )}
+      </div>
 
       <div className="flex gap-2">
         <div className="flex-1">

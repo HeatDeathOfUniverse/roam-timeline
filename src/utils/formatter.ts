@@ -17,7 +17,7 @@ export function formatDuration(startTime: string, endTime: string): string {
 }
 
 export function formatTimeForRoam(entry: { content: string; startTime: string; endTime: string; duration: string }): string {
-  return `- ${entry.startTime} - ${entry.endTime} （${entry.duration}） ${entry.content}`;
+  return `${entry.startTime} - ${entry.endTime} (**${entry.duration}**) - ${entry.content}`;
 }
 
 export function generatePageTitle(): string {
