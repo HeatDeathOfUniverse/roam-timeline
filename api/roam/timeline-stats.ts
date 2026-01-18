@@ -159,8 +159,13 @@ async function getTimelineEntries(
 
     try {
       const result = await fetchRoam(graphName, apiToken, query);
-      console.log(`Query result for ${pageTitle}:`, JSON.stringify(result).substring(0, 500));
+      console.log(`Query result for ${pageTitle}:`, JSON.stringify(result).substring(0, 1000));
       const timelineData = (result.result as Array<[Array<{':block/string': string}]>) || [];
+
+      console.log(`Raw timeline data length: ${timelineData.length}`);
+      if (timelineData.length > 0 && timelineData[0][0]) {
+        console.log(`First entry raw: "${timelineData[0][0][':block/string']}"`);
+      }
 
       if (timelineData.length > 0) {
         console.log(`Found ${timelineData.length} entries for ${pageTitle}`);
