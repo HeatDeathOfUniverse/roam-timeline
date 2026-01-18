@@ -180,52 +180,34 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
-        // VERIFICATION_MARKER_20260118_XYZ - If you see this, code is updated
-        console.log(`[VERIFIED] RAW_CONTENT: "${content.substring(0, 80)}..."`);
+        console.log(`[NEW_CODE_123] Processing: "${content.substring(0, 50)}..."`);
 
-        // Parse timeline format: "(**duration**) - content #category"
-        const newFormatMatch = content.match(/^\(\*\*([^*]+)\*\*\)\s*-\s*(.+)$/);
-        const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
-
-        console.log(`  newFormatMatch: ${newFormatMatch ? 'YES' : 'NO'}`);
-        console.log(`  timeMatch: ${timeMatch ? 'YES' : 'NO'}`);
-
-        if (newFormatMatch) {
-          // New format: (**duration**) - content
-          const durationStr = newFormatMatch[1].trim();
-          const entryContent = newFormatMatch[2];
-          const duration = parseDuration(durationStr);
-          const categories = extractCategories(entryContent);
-
-          console.log(`    -> PARSED: duration=${duration}, content="${entryContent.substring(0, 30)}..."`);
-          console.log(`    -> categories: [${categories.join(', ')}]`);
-
-          entries.push({
-            content: entryContent,
-            duration,
-            categories
-          });
-        } else if (timeMatch) {
-          // Old format: HH:MM - HH:MM duration content
-          const durationContent = timeMatch[3];
-          const durationMatch = durationContent.match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
-          const duration = durationMatch ? parseDuration(durationMatch[1]) : 0;
-          const entryContent = durationMatch ? durationMatch[2] : durationContent;
-          const categories = extractCategories(entryContent);
-
-          console.log(`    -> PARSED: duration=${duration}, content="${entryContent.substring(0, 30)}..."`);
-
-          entries.push({
-            content: entryContent,
-            duration,
-            categories
-          });
-        } else {
-          console.log(`    -> NO MATCH, SKIPPING`);
+        // Try to parse the new format: (**duration**) - content
+        const newMatch = content.match(/^\(\*\*([^*]+)\*\*\)\s*-\s*(.+)$/);
+        if (newMatch) {
+          const dur = parseDuration(newMatch[1].trim());
+          const cat = extractCategories(newMatch[2]);
+          console.log(`  -> NEW FORMAT: dur=${dur}, cats=${JSON.stringify(cat)}`);
+          if (cat.length > 0) {
+            entries.push({ content: newMatch[2], duration: dur, categories: cat });
+          }
+          continue;
         }
-      }
-      if (entryWithCategoriesCount > 0) {
-        console.log(`  -> ${entryWithCategoriesCount} entries with categories for ${pageTitle}`);
+
+        // Try old format: HH:MM - HH:MM duration content
+        const oldMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
+        if (oldMatch) {
+          const durMatch = oldMatch[3].match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
+          const dur = durMatch ? parseDuration(durMatch[1]) : 0;
+          const cat = extractCategories(durMatch ? durMatch[2] : oldMatch[3]);
+          console.log(`  -> OLD FORMAT: dur=${dur}, cats=${JSON.stringify(cat)}`);
+          if (cat.length > 0) {
+            entries.push({ content: durMatch ? durMatch[2] : oldMatch[3], duration: dur, categories: cat });
+          }
+          continue;
+        }
+
+        console.log(`  -> NO MATCH, SKIPPING`);
       }
     } catch (err) {
       // Skip days that don't exist (future dates, etc.)
