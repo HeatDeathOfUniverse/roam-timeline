@@ -280,15 +280,22 @@ function splitCrossDayEntry(
 }
 
 // 获取指定偏移量的页面标题
-function getPageTitleWithOffset(offset: number): string {
-  if (offset === 0) {
+function getPageTitleWithOffset(offset: number, startTime?: string): string {
+  let adjustedOffset = offset;
+
+  // 如果 startTime 是深夜时段（22:00-24:00），说明属于前一天，offset 减 1
+  if (startTime && timeToMinutes(startTime) >= 22 * 60) {
+    adjustedOffset -= 1;
+  }
+
+  if (adjustedOffset === 0) {
     return generatePageTitle();
-  } else if (offset === 1) {
+  } else if (adjustedOffset === 1) {
     return getTomorrowPageTitle();
   } else {
     // 通用情况：计算偏移日期
     const date = new Date();
-    date.setDate(date.getDate() + offset);
+    date.setDate(date.getDate() + adjustedOffset);
     const month = date.toLocaleString('en-US', { month: 'long' });
     const day = date.getDate();
     const suffix = getDaySuffix(day);
@@ -321,7 +328,7 @@ function getDaySuffix(n: number): string {
 
       // 对每条拆分后的记录执行插入
       for (const splitEntry of splitEntries) {
-        const pageTitle = getPageTitleWithOffset(splitEntry.pageDateOffset);
+        const pageTitle = getPageTitleWithOffset(splitEntry.pageDateOffset, splitEntry.startTime);
         const formattedText = formatTimeForRoam({
           content: splitEntry.content,
           startTime: splitEntry.startTime,
