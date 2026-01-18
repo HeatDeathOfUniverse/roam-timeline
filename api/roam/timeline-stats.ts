@@ -163,7 +163,7 @@ async function getTimelineEntries(
   return entries;
 }
 
-// Helper function to add duration to a category and its direct parent
+// Helper function to add duration to a category
 function addDurationToCategory(
   categories: CategoryNode[],
   catName: string,
@@ -179,21 +179,15 @@ function addDurationToCategory(
     // Check if this is the matching category (compare names without brackets)
     if (currentPathWithoutBrackets === catNameWithoutBrackets ||
         cat.name.replace(/\[\[|\]\]/g, '') === catNameWithoutBrackets) {
-      // Add duration to this category (ownDuration)
+      // Add duration to this category (becomes its ownDuration)
+      // Parent's totalDuration will be calculated automatically in buildStatsTreeWithDurations
       addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
-
-      // Also add to direct parent if exists (parentPath is the direct parent)
-      if (parentPath) {
-        addDurationToPath(categoryDurations, parentPath, duration);
-      }
       return true;
     }
 
     // Continue searching in children
     if (cat.children && cat.children.length > 0) {
-      // Pass only this node's path as the potential parent for children
-      const directParentPath = cat.name;
-      const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, directParentPath);
+      const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, currentPath);
       if (found) {
         return true;
       }
