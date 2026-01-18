@@ -149,6 +149,9 @@ async function getTimelineEntries(
           if (categories.length > 0) {
             console.log(`  Entry: "${entryContent.substring(0, 50)}..." -> categories: [${categories.join(', ')}], duration: ${duration}m`);
             entryWithCategoriesCount++;
+          } else {
+            // Log entries without categories for debugging
+            console.log(`  NO CATEGORIES: "${entryContent.substring(0, 80)}..."`);
           }
 
           entries.push({
