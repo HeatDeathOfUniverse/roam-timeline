@@ -229,22 +229,23 @@ export function useRoam() {
     try {
       const pageTitle = generatePageTitle();
       const formattedText = formatTimeForRoam(entry as JournalEntry);
+      const today = new Date().toISOString().split('T')[0];
+      const timelineUid = `timeline-${today}`;
 
-      // Use date-based UID so each day has its own Timeline block
-      const today = new Date().toISOString().split('T')[0]; // "2026-01-18"
-      const timelineUid = `timeline-${today}`; // "timeline-2026-01-18"
+      // 先查询 Timeline 块是否已存在
+      const existsQuery = `[:find ?b :where [?b :block/uid "${timelineUid}"]]`;
+      const existsResult = await bffFetch('q', { query: existsQuery });
+      const timelineExists = existsResult?.result?.length > 0;
 
-      // Try to create Timeline block if it doesn't exist (idempotent)
-      try {
+      // 只在 Timeline 不存在时创建
+      if (!timelineExists) {
         await bffFetch('create-block', {
           location: { 'page-title': pageTitle, order: 'last' },
           block: { string: 'Timeline', uid: timelineUid },
         });
-      } catch {
-        // Timeline block may already exist, ignore error
       }
 
-      // Insert the entry under Timeline block
+      // 插入条目
       await bffFetch('create-block', {
         location: { 'parent-uid': timelineUid, order: 'last' },
         block: {
@@ -276,6 +277,31 @@ export function useRoam() {
     }
   }, [bffFetch]);
 
+  // Create a child node under the Timeline block
+  const createChildNode = useCallback(async (content: string): Promise<boolean> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const timelineUid = `timeline-${today}`;
+
+      await bffFetch('create-block', {
+        location: { 'parent-uid': timelineUid, order: 'last' },
+        block: {
+          string: content,
+          uid: `child-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        },
+      });
+
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [bffFetch]);
+
   return {
     config,
     isConfigured: !!config,
@@ -288,5 +314,6 @@ export function useRoam() {
     getLastEntryEndTime,
     getTimelineEntries,
     getCategories,
+    createChildNode,
   };
 }

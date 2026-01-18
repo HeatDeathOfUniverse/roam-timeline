@@ -17,11 +17,6 @@ app.use((req, res, next) => {
 });
 
 const ROAM_API_TOKEN = 'roam-graph-token-AC1uSpGn4az4ckYYDdyUG8-G4Y1dw';
-const PEERS = [
-  'peer-24.api.roamresearch.com:3001',
-  'peer-25.api.roamresearch.com:3001',
-  'peer-23.api.roamresearch.com:3001',
-];
 
 // Categories API endpoint - MUST come before /:graphName route
 app.post('/api/roam/categories', async (req, res) => {
@@ -112,6 +107,94 @@ app.post('/api/roam/categories', async (req, res) => {
   }
 });
 
+// Pages API endpoint - MUST come before /:graphName route
+app.post('/api/roam/pages', async (req, res) => {
+  console.log('>>> PAGES API ROUTE HIT <<<');
+  const { graphName } = req.body;
+
+  if (!graphName) {
+    return res.status(400).json({ error: 'Graph name is required' });
+  }
+
+  console.log('Fetching pages for graph:', graphName);
+
+  // Query for all pages in the graph
+  const query = `[:find (pull ?page [:node/uid :node/title :block/string]) :where [?page :node/title]]`;
+
+  const body = JSON.stringify({ query, args: [] });
+
+  const headers = {
+    'Authorization': `Bearer ${ROAM_API_TOKEN}`,
+    'x-authorization': `Bearer ${ROAM_API_TOKEN}`,
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body)
+  };
+
+  try {
+    const url = new URL(`https://api.roamresearch.com/api/graph/${graphName}/q`);
+    console.log('Trying:', url.hostname + url.pathname);
+
+    const response = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname,
+        method: 'POST',
+        headers: headers
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, data }));
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+
+    console.log('  Status:', response.status);
+
+    if (response.status === 308 && response.headers.location) {
+      const redirectUrl = new URL(response.headers.location);
+      const redirectResponse = await new Promise((resolve, reject) => {
+        const req = https.request({
+          hostname: redirectUrl.hostname,
+          port: redirectUrl.port || 443,
+          path: redirectUrl.pathname,
+          method: 'POST',
+          headers: headers
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => resolve({ status: res.statusCode, data }));
+        });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+      });
+
+      if (redirectResponse.status === 200) {
+        const parsedData = JSON.parse(redirectResponse.data);
+        const pages = parsePages(parsedData);
+        console.log('  Found', pages.length, 'pages');
+        return res.status(200).json({ pages });
+      }
+    }
+
+    if (response.status === 200) {
+      const parsedData = JSON.parse(response.data);
+      const pages = parsePages(parsedData);
+      console.log('  Found', pages.length, 'pages');
+      return res.status(200).json({ pages });
+    }
+
+    console.log('  Error:', response);
+    res.status(response.status || 500).json({ error: 'Failed to fetch pages' });
+  } catch (error) {
+    console.log('  Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/roam/:graphName', async (req, res) => {
   console.log('>>> API ROUTE HIT <<<');
   console.log('graphName:', req.params.graphName);
@@ -136,11 +219,11 @@ app.post('/api/roam/:graphName', async (req, res) => {
     'Content-Length': Buffer.byteLength(body)
   };
 
-  // Queries go to /q endpoint
-  // Mutations go to /write endpoint + peer servers
+  // Queries go to /q endpoint, mutations go to /write endpoint
+  // Both follow 308 redirects to handle load balancing across peers
   const urlsToTry = isQuery
     ? [`https://api.roamresearch.com/api/graph/${graphName}/q`]
-    : [`https://api.roamresearch.com/api/graph/${graphName}/write`, ...PEERS.map(p => `https://${p}/api/graph/${graphName}/write`)];
+    : [`https://api.roamresearch.com/api/graph/${graphName}/write`];
 
   console.log('action:', action, 'isQuery:', isQuery, 'urls:', urlsToTry);
 
@@ -170,7 +253,7 @@ app.post('/api/roam/:graphName', async (req, res) => {
 
       if (response.status === 308 && response.headers.location) {
         const redirectUrl = new URL(response.headers.location);
-        console.log('  Following redirect to:', redirectUrl.hostname + redirectUrl.pathname);
+        console.log('  Following redirect to:', redirectUrl.hostname + ':' + redirectUrl.port + redirectUrl.pathname);
         const redirectResponse = await new Promise((resolve, reject) => {
           const req = https.request({
             hostname: redirectUrl.hostname,
@@ -254,6 +337,29 @@ function parseCategories(data) {
       return null;
     })
     .filter(item => item !== null);
+}
+
+function parsePages(data) {
+  const result = data?.result;
+  if (!result || !Array.isArray(result)) {
+    return [];
+  }
+
+  const pageSet = new Map();
+
+  for (const item of result) {
+    const block = item[0];
+    if (!block) continue;
+
+    let title = block[':node/title'] || block[':block/string'];
+    let uid = block[':node/uid'] || block[':block/uid'];
+
+    if (title && uid && !pageSet.has(title)) {
+      pageSet.set(title, { id: uid, name: `[[${title}]]` });
+    }
+  }
+
+  return Array.from(pageSet.values());
 }
 
 app.use(express.static('dist'));

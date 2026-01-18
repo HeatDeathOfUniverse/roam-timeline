@@ -1,55 +1,121 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { JournalEntry as JournalEntryType } from '../types';
 import { formatDuration } from '../utils/formatter';
-import { uploadImage, markdownImage } from '../utils/imageUploader';
-import { CategorySelector } from './CategorySelector';
+import { uploadImage } from '../utils/imageUploader';
+import Fuse from 'fuse.js';
+
+interface SuggestionItem {
+  id: string;
+  name: string;
+  type: 'tag' | 'page';
+}
+
+// Get tag name from category name (remove [[ ]] and convert to lowercase)
+const getTagName = (name: string): string => {
+  return name.replace(/\[\[|\]\]/g, '').toLowerCase();
+};
 
 interface Props {
   onSubmit: (entry: Omit<JournalEntryType, 'id' | 'createdAt'>) => void;
+  onCreateChildNode: (content: string) => void;
   isLoading: boolean;
   initialStartTime?: string;
   currentTime?: string;
 }
 
-export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, currentTime }: Props) {
+export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initialStartTime, currentTime }: Props) {
   const [content, setContent] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
-  const [, setTick] = useState(0); // Force re-render every second
+  const [, setTick] = useState(0);
+
+  // Editor ref
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  // Suggestion states
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestionType, setSuggestionType] = useState<'tag' | 'page'>('tag');
+  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
+  const [categories, setCategories] = useState<SuggestionItem[]>([]);
+  const [pages, setPages] = useState<SuggestionItem[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const suggestionRef = useRef<HTMLDivElement>(null);
 
   // Image upload states
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [cloudinaryConfigured, setCloudinaryConfigured] = useState(false);
 
-  // Check Cloudinary config on mount
+  // Fetch categories and pages on mount
   useEffect(() => {
+    const fetchData = async () => {
+      const saved = localStorage.getItem('roamConfig');
+      const config = saved ? JSON.parse(saved) : null;
+      const graphName = config?.graphName;
+
+      if (graphName) {
+        // Fetch categories
+        try {
+          const catResponse = await fetch('/api/roam/categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ graphName }),
+          });
+          if (catResponse.ok) {
+            const data = await catResponse.json();
+            const items: SuggestionItem[] = (data.categories || []).map((c: { id: string; name: string }) => ({
+              id: c.id,
+              name: c.name,
+              type: 'tag' as const,
+            }));
+            setCategories(items);
+          }
+        } catch (e) {
+          console.error('Failed to fetch categories:', e);
+        }
+
+        // Fetch pages
+        try {
+          const pageResponse = await fetch('/api/roam/pages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ graphName }),
+          });
+          if (pageResponse.ok) {
+            const data = await pageResponse.json();
+            setPages(data.pages || []);
+          }
+        } catch (e) {
+          console.error('Failed to fetch pages:', e);
+        }
+      }
+    };
+
+    fetchData();
+
+    // Check Cloudinary config
     const cloudinaryConfig = localStorage.getItem('cloudinaryConfig');
-    console.log('Checking Cloudinary config:', cloudinaryConfig);
     if (cloudinaryConfig) {
       const config = JSON.parse(cloudinaryConfig);
-      console.log('Cloudinary loaded:', config);
       setCloudinaryConfigured(!!config.cloudName && !!config.preset);
     }
   }, []);
 
-  // Set initial start time when it becomes available
+  // Set initial start time
   useEffect(() => {
     if (initialStartTime && !startTime) {
       setStartTime(initialStartTime);
     }
   }, [initialStartTime]);
 
-  // Update end time when currentTime changes (for live ticking)
+  // Update end time
   useEffect(() => {
     if (currentTime) {
       setEndTime(currentTime);
     }
   }, [currentTime]);
 
-  // Tick every second to update elapsed time display
+  // Tick every second
   useEffect(() => {
     const interval = setInterval(() => {
       setTick(t => t + 1);
@@ -57,75 +123,181 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     return () => clearInterval(interval);
   }, []);
 
-  // Calculate time elapsed since last entry (in HH:MM:SS format)
+  // Calculate elapsed time
   const getElapsedTime = () => {
     if (!initialStartTime || !currentTime) return null;
-
     const now = new Date();
     const [startH, startM] = initialStartTime.split(':').map(Number);
     const startDate = new Date();
     startDate.setHours(startH, startM, 0, 0);
-
     let diffMs = now.getTime() - startDate.getTime();
-    if (diffMs < 0) diffMs += 24 * 60 * 60 * 1000; // handle midnight
-
+    if (diffMs < 0) diffMs += 24 * 60 * 60 * 1000;
     const totalSeconds = Math.floor(diffMs / 1000);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
-  // Handle image selection
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      // Check file type
-      if (!file.type.startsWith('image/')) {
-        setUploadError('请选择图片文件');
-        return;
-      }
-      // Check file size (5MB limit)
-      if (file.size > 5 * 1024 * 1024) {
-        setUploadError('图片大小不能超过 5MB');
-        return;
-      }
-      setSelectedImage(file);
-      setUploadedImageUrl(null);
-      setUploadError(null);
+  // Get editor plain text
+  const getEditorText = useCallback(() => {
+    return editorRef.current?.innerText || '';
+  }, []);
+
+  // Handle editor input
+  const handleInput = useCallback(() => {
+    setContent(getEditorText());
+  }, [getEditorText]);
+
+  // Filter suggestions
+  const filterSuggestions = useCallback((type: 'tag' | 'page', query: string) => {
+    let items = type === 'tag' ? categories : pages;
+    if (query.trim()) {
+      const fuse = new Fuse(items, { keys: ['name'], threshold: 0.4 });
+      items = fuse.search(query).map(r => r.item);
     }
+    setSuggestions(items.slice(0, 10));
+  }, [categories, pages]);
+
+  // Handle key down for # @ triggers
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (showSuggestions) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(i => Math.min(i + 1, suggestions.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(i => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        if (suggestions[selectedIndex]) {
+          const item = suggestions[selectedIndex];
+          insertSuggestion(item);
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        setShowSuggestions(false);
+        return;
+      }
+    }
+
+    // Check for # or @ triggers
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const textBefore = range.startContainer.textContent?.slice(0, range.startOffset) || '';
+
+    const hashMatch = textBefore.match(/#(\w*)$/);
+    if (hashMatch) {
+      const query = hashMatch[1];
+      setSuggestionType('tag');
+      filterSuggestions('tag', query);
+      setShowSuggestions(true);
+      setSelectedIndex(0);
+      return;
+    }
+
+    const atMatch = textBefore.match(/@(\w*)$/);
+    if (atMatch) {
+      const query = atMatch[1];
+      setSuggestionType('page');
+      filterSuggestions('page', query);
+      setShowSuggestions(true);
+      setSelectedIndex(0);
+      return;
+    }
+
+    if (showSuggestions) {
+      setShowSuggestions(false);
+    }
+  }, [showSuggestions, suggestions, selectedIndex, filterSuggestions]);
+
+  // Insert suggestion
+  const insertSuggestion = (item: SuggestionItem) => {
+    const selection = window.getSelection();
+    if (!selection || !editorRef.current) return;
+
+    const range = selection.getRangeAt(0);
+    const textNode = range.startContainer;
+    const offset = range.startOffset;
+
+    const textBefore = textNode.textContent?.slice(0, offset) || '';
+    const triggerMatch = textBefore.match(/[#@]\w*$/);
+    if (triggerMatch) {
+      const triggerStart = offset - triggerMatch[0].length;
+      const triggerEnd = offset;
+      const beforeText = textNode.textContent?.slice(0, triggerStart) || '';
+      const afterText = textNode.textContent?.slice(triggerEnd) || '';
+
+      let insertText = '';
+      if (suggestionType === 'tag') {
+        insertText = `#${getTagName(item.name)}`;
+      } else {
+        insertText = `[[${item.name}]]`;
+      }
+
+      textNode.textContent = beforeText + insertText + afterText;
+
+      // Update selection
+      const newRange = document.createRange();
+      newRange.setStart(textNode, triggerStart + insertText.length);
+      newRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+
+      // Update content
+      setContent(getEditorText());
+    }
+
+    setShowSuggestions(false);
   };
 
-  // Handle image upload to Cloudinary
-  const handleImageUpload = async () => {
-    if (!selectedImage) return;
+  // Insert text at cursor
+  const insertText = (text: string) => {
+    document.execCommand('insertText', false, text);
+    setContent(getEditorText());
+  };
+
+  // Format selection
+  const formatText = (before: string, after: string) => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const selectedText = range.toString();
+
+    if (selectedText) {
+      document.execCommand('insertText', false, `${before}${selectedText}${after}`);
+    } else {
+      document.execCommand('insertText', false, `${before}${after}`);
+    }
+    setContent(getEditorText());
+  };
+
+  // Image upload
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const cloudinaryConfig = JSON.parse(localStorage.getItem('cloudinaryConfig') || '{}');
+    if (!cloudinaryConfig.cloudName || !cloudinaryConfig.preset) {
+      setUploadError('请先在设置中配置 Cloudinary');
+      return;
+    }
 
     setIsUploading(true);
     setUploadError(null);
 
-    // Load Cloudinary config
-    const cloudinaryConfig = JSON.parse(localStorage.getItem('cloudinaryConfig') || '{}');
-    const cloudName = cloudinaryConfig.cloudName || '';
-    const preset = cloudinaryConfig.preset || '';
-
-    console.log('Cloudinary config:', { cloudName, preset, hasConfig: !!cloudinaryConfig.cloudName });
-
-    if (!cloudName || !preset) {
-      setUploadError('请先在设置中配置 Cloudinary');
-      setIsUploading(false);
-      return;
-    }
-
-    console.log('Starting upload to Cloudinary...');
-    const result = await uploadImage(selectedImage, cloudName, preset);
-
-    console.log('Upload result:', result);
+    const result = await uploadImage(file, cloudinaryConfig.cloudName, cloudinaryConfig.preset);
 
     if (result.success && result.url) {
-      setUploadedImageUrl(result.url);
-      // Append markdown image to content
-      setContent(prev => prev + '\n' + markdownImage(result.url!));
+      insertText(`\n![](${result.url})\n`);
     } else {
       setUploadError(result.error || '上传失败');
     }
@@ -133,11 +305,18 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     setIsUploading(false);
   };
 
-  // Clear selected image
-  const clearSelectedImage = () => {
-    setSelectedImage(null);
-    setUploadedImageUrl(null);
-    setUploadError(null);
+  // Create child node
+  const handleCreateChildNode = () => {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString() || getEditorText();
+
+    if (selectedText.trim()) {
+      onCreateChildNode(selectedText);
+      if (editorRef.current) {
+        editorRef.current.innerText = '';
+        setContent('');
+      }
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -147,11 +326,9 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
     const duration = formatDuration(startTime, endTime);
     onSubmit({ content, startTime, endTime, duration });
     setContent('');
-    // Clear image state after submit
-    setSelectedImage(null);
-    setUploadedImageUrl(null);
-    setUploadError(null);
-    // Keep startTime and endTime for continuous entry
+    if (editorRef.current) {
+      editorRef.current.innerText = '';
+    }
   };
 
   return (
@@ -159,9 +336,7 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
       <div className="flex justify-between items-center">
         <h3 className="font-semibold text-lg">添加日记</h3>
         {getElapsedTime() && (
-          <span className="text-sm text-yellow-400">
-            已过去 {getElapsedTime()}
-          </span>
+          <span className="text-sm text-yellow-400">已过去 {getElapsedTime()}</span>
         )}
       </div>
 
@@ -188,117 +363,100 @@ export function JournalEntryForm({ onSubmit, isLoading, initialStartTime, curren
         </div>
       </div>
 
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <label className="block text-xs text-gray-400">内容</label>
-          <CategorySelector
-            onSelect={(tag) => setContent(prev => prev + (prev ? ' ' : '') + tag)}
-            disabled={isLoading}
-            searchQuery={content}
-          />
-        </div>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="做了什么...（输入关键词自动搜索匹配分类）"
-          className="w-full p-2 bg-gray-700 rounded text-white h-20 resize-none"
-          required
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 p-2 bg-gray-750 border border-gray-600 rounded-t-lg flex-wrap">
+        {/* Format buttons */}
+        <button type="button" onClick={() => formatText('**', '**')} className="p-1.5 rounded hover:bg-gray-600 text-gray-300 font-bold" title="加粗">
+          B
+        </button>
+        <button type="button" onClick={() => formatText('*', '*')} className="p-1.5 rounded hover:bg-gray-600 text-gray-300 italic" title="斜体">
+          I
+        </button>
+        <button type="button" onClick={() => formatText('<u>', '</u>')} className="p-1.5 rounded hover:bg-gray-600 text-gray-300 underline" title="下划线">
+          U
+        </button>
+        <button type="button" onClick={() => formatText('~~', '~~')} className="p-1.5 rounded hover:bg-gray-600 text-gray-300 line-through" title="删除线">
+          S
+        </button>
+        <button type="button" onClick={() => formatText('`', '`')} className="p-1.5 rounded hover:bg-gray-600 text-gray-300 font-mono text-xs" title="行内代码">
+          {'</>'}
+        </button>
+
+        <div className="w-px h-6 bg-gray-600 mx-1" />
+
+        {/* Image button */}
+        <label className={`p-1.5 rounded hover:bg-gray-600 text-gray-300 cursor-pointer ${!cloudinaryConfigured ? 'opacity-50 cursor-not-allowed' : ''}`} title="插入图片">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" disabled={!cloudinaryConfigured || isUploading} />
+        </label>
+
+        <div className="w-px h-6 bg-gray-600 mx-1" />
+
+        {/* List button - create child node */}
+        <button type="button" onClick={handleCreateChildNode} className="p-1.5 rounded hover:bg-gray-600 text-gray-300" title="创建子节点">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+
+        <div className="w-px h-6 bg-gray-600 mx-1" />
+
+        {/* Help text */}
+        <span className="text-xs text-gray-500 ml-2">
+          输入 # 选标签，@ 选页面
+        </span>
+      </div>
+
+      {/* Editor */}
+      <div className="relative">
+        <div
+          ref={editorRef}
+          contentEditable
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          className="w-full p-3 bg-gray-700 rounded-b-lg text-white min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+          data-placeholder="输入内容...（支持 Markdown 格式）"
+          suppressContentEditableWarning
         />
+
+        {/* Suggestions popup */}
+        {showSuggestions && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setShowSuggestions(false)} />
+            <div ref={suggestionRef} className="absolute z-20 w-64 bg-gray-800 rounded-lg shadow-xl border border-gray-700 max-h-60 overflow-y-auto" style={{ bottom: '100%', left: 0, marginBottom: '4px' }}>
+              {suggestions.length === 0 ? (
+                <div className="p-3 text-sm text-gray-500 text-center">
+                  未找到 {suggestionType === 'tag' ? '标签' : '页面'}
+                </div>
+              ) : (
+                <ul>
+                  {suggestions.map((item, index) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => insertSuggestion(item)}
+                        className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${index === selectedIndex ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+                      >
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.type === 'tag' ? 'bg-blue-500' : 'bg-green-500'}`} />
+                        <span className="flex-1 truncate">{item.name.replace(/\[\[|\]\]/g, '')}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Image Upload Section */}
-      <div className="space-y-2">
-        <label className="block text-xs text-gray-400">添加图片（可选）</label>
-
-        {!cloudinaryConfigured && !selectedImage && (
-          <p className="text-yellow-400 text-xs">
-            请先在设置中配置 Cloudinary 以启用图片上传
-          </p>
-        )}
-
-        {!selectedImage && !uploadedImageUrl && (
-          <div className="flex items-center gap-2">
-            <label className={`cursor-pointer py-2 px-4 rounded inline-flex items-center ${cloudinaryConfigured ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 cursor-not-allowed'}`}>
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span>选择图片</span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="hidden"
-                disabled={!cloudinaryConfigured}
-              />
-            </label>
-          </div>
-        )}
-
-        {selectedImage && !uploadedImageUrl && (
-          <div className="bg-gray-700 rounded p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-300 truncate max-w-xs">{selectedImage.name}</span>
-              <button
-                onClick={clearSelectedImage}
-                className="text-gray-400 hover:text-white ml-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Preview */}
-            <div className="mb-3">
-              <img
-                src={URL.createObjectURL(selectedImage)}
-                alt="Preview"
-                className="max-h-32 rounded object-contain bg-gray-800"
-              />
-            </div>
-
-            {/* Error message */}
-            {uploadError && (
-              <p className="text-red-400 text-sm mb-2">{uploadError}</p>
-            )}
-
-            {/* Upload button */}
-            <button
-              onClick={handleImageUpload}
-              disabled={isUploading}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white py-2 px-4 rounded"
-            >
-              {isUploading ? '上传中...' : '上传图片'}
-            </button>
-          </div>
-        )}
-
-        {uploadedImageUrl && (
-          <div className="bg-gray-700 rounded p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-green-400">图片已上传</span>
-              <button
-                onClick={clearSelectedImage}
-                className="text-gray-400 hover:text-white"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <img
-              src={uploadedImageUrl}
-              alt="Uploaded"
-              className="max-h-32 rounded object-contain bg-gray-800"
-            />
-            <p className="text-xs text-gray-400 mt-2 truncate">{uploadedImageUrl}</p>
-          </div>
-        )}
-      </div>
+      {/* Upload error */}
+      {uploadError && <p className="text-red-400 text-sm">{uploadError}</p>}
 
       <button
         type="submit"
-        disabled={isLoading}
+        disabled={isLoading || !content || !startTime || !endTime}
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 px-4 rounded"
       >
         {isLoading ? '提交中...' : '添加到 Roam'}
@@ -318,7 +476,7 @@ export function EntryItem({ entry }: EntryItemProps) {
         <span>{entry.startTime} - {entry.endTime}</span>
         <span>{entry.duration}</span>
       </div>
-      <p className="text-white">{entry.content}</p>
+      <p className="text-white whitespace-pre-wrap">{entry.content}</p>
     </div>
   );
 }

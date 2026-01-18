@@ -8,7 +8,7 @@ import { generatePageTitle } from './utils/formatter';
 import type { JournalEntry } from './types';
 
 function App() {
-  const { isConfigured, addEntry, isLoading, getLastEntryEndTime, getTimelineEntries } = useRoam();
+  const { isConfigured, addEntry, isLoading, getLastEntryEndTime, getTimelineEntries, createChildNode } = useRoam();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'journal' | 'settings'>('journal');
   const [initialStartTime, setInitialStartTime] = useState<string>('');
@@ -93,6 +93,25 @@ function App() {
     }
   };
 
+  const handleCreateChildNode = async (content: string) => {
+    const success = await createChildNode(content);
+    if (success) {
+      // Refresh entries from Roam
+      const roamEntries = await getTimelineEntries();
+      const mapped: JournalEntry[] = roamEntries.map((e, i) => ({
+        id: `roam-${i}`,
+        content: e.content,
+        startTime: e.startTime,
+        endTime: e.endTime,
+        duration: e.duration,
+        createdAt: new Date().toISOString(),
+      }));
+      setEntries(mapped);
+    } else {
+      alert('创建子节点失败!');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
@@ -130,6 +149,7 @@ function App() {
               <>
                 <JournalEntryForm
                   onSubmit={handleAddEntry}
+                  onCreateChildNode={handleCreateChildNode}
                   isLoading={isLoading}
                   initialStartTime={initialStartTime}
                   currentTime={currentTime}
