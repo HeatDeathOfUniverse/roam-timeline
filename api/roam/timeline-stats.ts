@@ -110,39 +110,41 @@ async function getTimelineEntries(
   // Use month prefix for filtering
   const monthPrefix = startDate ? startDate.split(' ')[0] : 'January';
 
-  // Query all pages in the month, then get their Timeline entries
-  const query = `[:find (pull ?page [:node/title {:block/children [:block/string :block/order]}]) :where
+  // Query all Timeline entries for pages in the month
+  // This gets all blocks that are children of a Timeline block
+  const query = `[:find (pull ?entry [:block/string :block/order {:block/page [:node/title]}]) :where
     [?page :node/title ?title]
-    [(clojure.string/starts-with? ?title "${monthPrefix}")]]`;
+    [(clojure.string/starts-with? ?title "${monthPrefix}")]
+    [?timeline :block/page ?page]
+    [?timeline :block/string "Timeline"]
+    [?timeline :block/children ?entry]]`;
 
   const result = await fetchRoam(graphName, apiToken, query);
   const entries: TimelineEntry[] = [];
 
-  const pages = result.result as Array<{ ':node/title': string; ':block/children': Array<{ ':block/string': string }> }>;
+  const timelineEntries = ((result.result as Array<[{':block/string': string; ':block/page': {':node/title': string}}]>) || []);
 
-  for (const page of pages) {
-    const pageTitle = page[':node/title'];
-    const children = page[':block/children'] || [];
+  for (const entryItem of timelineEntries) {
+    const entryData = entryItem[0];
+    if (!entryData) continue;
 
-    for (const child of children) {
-      const content = child[':block/string'];
-      if (!content) continue;
+    const content = entryData[':block/string'];
+    if (!content) continue;
 
-      // Parse timeline format
-      const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
-      if (timeMatch) {
-        const duration = parseDuration(timeMatch[3]);
-        const entryContent = timeMatch[4];
+    // Parse timeline format
+    const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
+    if (timeMatch) {
+      const duration = parseDuration(timeMatch[3]);
+      const entryContent = timeMatch[4];
 
-        // Extract category tags from content
-        const categories = extractCategories(entryContent);
+      // Extract category tags from content
+      const categories = extractCategories(entryContent);
 
-        entries.push({
-          content: entryContent,
-          duration,
-          categories
-        });
-      }
+      entries.push({
+        content: entryContent,
+        duration,
+        categories
+      });
     }
   }
 
