@@ -19,8 +19,8 @@ function StatsTreeNode({ node, depth = 0, totalDuration }: StatsTreeNodeProps) {
     }
   };
 
-  // Calculate percentage based on own duration vs total duration
-  const displayPercentage = node.totalDuration > 0 ? calculatePercentage(node.totalDuration, totalDuration) : 0;
+  // Use percentage from props (already calculated in hook based on totalDuration)
+  const displayPercentage = node.percentage;
 
   return (
     <div className="select-none">
