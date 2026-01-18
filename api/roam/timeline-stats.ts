@@ -254,6 +254,7 @@ function extractCategories(content: string): string[] {
     const catName = match[1].trim();
     if (catName && !foundCategories.has(catName)) {
       foundCategories.add(catName);
+      categories.push(catName);
     }
   }
 
@@ -265,10 +266,15 @@ function extractCategories(content: string): string[] {
     // Skip if this looks like a bracket expression (contains [[)
     if (catName && !catName.includes('[[') && !foundCategories.has(catName)) {
       foundCategories.add(catName);
+      categories.push(catName);
     }
   }
 
-  return Array.from(foundCategories);
+  if (categories.length > 0) {
+    console.log(`extractCategories for "${content.substring(0, 50)}...": [${categories.join(', ')}]`);
+  }
+
+  return categories;
 }
 
 // Parse duration string like "39'" or "1h30'"
