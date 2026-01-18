@@ -174,17 +174,14 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
-        // Parse timeline format: "HH:MM - HH:MM duration content"
-        // Duration can be like "2h12'" or "39'" or "1h30'"
-        // First match time range, then extract duration and content
-        const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
-        if (timeMatch) {
-          // timeMatch[3] is "duration content" - extract duration from the start
-          // Duration format: "2h12'" or "12h30'" or "39'" or "1h" etc.
-          const durationContent = timeMatch[3];
-          const durationMatch = durationContent.match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
-          const duration = durationMatch ? parseDuration(durationMatch[1]) : 0;
-          const entryContent = durationMatch ? durationMatch[2] : durationContent;
+        // Parse timeline format: "(**duration**) - content #category"
+        // Duration can be like "2h12'" or "39'" or "1h30'" or "8h0'"
+        // New format: (**duration**) - content #category
+        const newFormatMatch = content.match(/^\(\*\*(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\*\*\)\s*-\s*(.+)$/);
+        if (newFormatMatch) {
+          const durationStr = newFormatMatch[1];
+          const entryContent = newFormatMatch[2];
+          const duration = parseDuration(durationStr);
 
           // Extract category tags from content
           const categories = extractCategories(entryContent);
@@ -193,7 +190,6 @@ async function getTimelineEntries(
             console.log(`  Entry: "${entryContent.substring(0, 50)}..." -> categories: [${categories.join(', ')}], duration: ${duration}m`);
             entryWithCategoriesCount++;
           } else {
-            // Log entries without categories for debugging
             console.log(`  NO CATEGORIES: "${entryContent.substring(0, 80)}..."`);
           }
 
@@ -202,6 +198,30 @@ async function getTimelineEntries(
             duration,
             categories
           });
+        } else {
+          // Old format: "HH:MM - HH:MM duration content"
+          const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
+          if (timeMatch) {
+            const durationContent = timeMatch[3];
+            const durationMatch = durationContent.match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
+            const duration = durationMatch ? parseDuration(durationMatch[1]) : 0;
+            const entryContent = durationMatch ? durationMatch[2] : durationContent;
+
+            const categories = extractCategories(entryContent);
+
+            if (categories.length > 0) {
+              console.log(`  Entry: "${entryContent.substring(0, 50)}..." -> categories: [${categories.join(', ')}], duration: ${duration}m`);
+              entryWithCategoriesCount++;
+            } else {
+              console.log(`  NO CATEGORIES: "${entryContent.substring(0, 80)}..."`);
+            }
+
+            entries.push({
+              content: entryContent,
+              duration,
+              categories
+            });
+          }
         }
       }
       if (entryWithCategoriesCount > 0) {
