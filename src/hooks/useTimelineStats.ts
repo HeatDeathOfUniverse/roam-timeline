@@ -93,6 +93,16 @@ export function useTimelineStats(): UseTimelineStatsReturn {
 
       const data: TimelineStatsResponse = await response.json();
 
+      // Deep clone the stats to avoid mutation across fetches
+      const cloneStats = (nodes: CategoryNode[]): CategoryNode[] => {
+        return nodes.map(node => ({
+          ...node,
+          children: node.children.length > 0 ? cloneStats(node.children) : []
+        }));
+      };
+
+      const clonedStats = cloneStats(data.stats);
+
       // Calculate total duration and percentages
       const calculatePercentages = (nodes: CategoryNode[]): number => {
         let total = 0;
@@ -105,7 +115,7 @@ export function useTimelineStats(): UseTimelineStatsReturn {
         return total;
       };
 
-      const totalDuration = calculatePercentages(data.stats);
+      const totalDuration = calculatePercentages(clonedStats);
 
       const addPercentages = (nodes: CategoryNode[]) => {
         for (const node of nodes) {
@@ -117,8 +127,8 @@ export function useTimelineStats(): UseTimelineStatsReturn {
         }
       };
 
-      addPercentages(data.stats);
-      setStats(data.stats);
+      addPercentages(clonedStats);
+      setStats(clonedStats);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
