@@ -111,24 +111,23 @@ async function getTimelineEntries(
   const monthPrefix = startDate ? startDate.split(' ')[0] : 'January';
 
   // Query all Timeline entries for pages in the month
-  // This gets all blocks that are children of a Timeline block
-  const query = `[:find (pull ?entry [:block/string :block/order {:block/page [:node/title]}]) :where
+  // First get page uids, then get timeline entries
+  const query = `[:find ?page ?uid ?title ?childString :where
     [?page :node/title ?title]
     [(clojure.string/starts-with? ?title "${monthPrefix}")]
-    [?timeline :block/page ?page]
-    [?timeline :block/string "Timeline"]
-    [?timeline :block/children ?entry]]`;
+    [?b :block/page ?page]
+    [?b :block/string "Timeline"]
+    [?b :block/children ?child]
+    [?child :block/string ?childString]]`;
 
   const result = await fetchRoam(graphName, apiToken, query);
   const entries: TimelineEntry[] = [];
 
-  const timelineEntries = ((result.result as Array<[{':block/string': string; ':block/page': {':node/title': string}}]>) || []);
+  const rows = (result.result as Array<[string, string, string, string]>) || [];
 
-  for (const entryItem of timelineEntries) {
-    const entryData = entryItem[0];
-    if (!entryData) continue;
+  for (const row of rows) {
+    const [, , pageTitle, content] = row;
 
-    const content = entryData[':block/string'];
     if (!content) continue;
 
     // Parse timeline format
@@ -148,6 +147,7 @@ async function getTimelineEntries(
     }
   }
 
+  console.log(`Found ${entries.length} timeline entries for ${monthPrefix}`);
   return entries;
 }
 
