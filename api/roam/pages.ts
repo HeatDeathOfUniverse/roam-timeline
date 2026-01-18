@@ -114,20 +114,11 @@ function parsePages(data: RoamResult): Array<{ id: string; name: string }> {
     const block = item[0];
     if (!block) continue;
 
-    // Get page title from either :node/title or :block/string
-    let title: string | undefined;
-    let uid: string | undefined;
-
-    if (block[':node/title']) {
-      title = block[':node/title'];
-      uid = block[':node/uid'];
-    } else if (block[':block/string']) {
-      title = block[':block/string'];
-      uid = block[':node/uid'] || block[':block/uid'];
-    }
-
-    if (title && uid && !pageSet.has(title)) {
-      pageSet.set(title, { id: uid, name: `[[${title}]]` });
+    // For pages, :node/title is the unique identifier
+    // :node/uid might not be returned for pages, so use title as id
+    const title = block[':node/title'];
+    if (title && !pageSet.has(title)) {
+      pageSet.set(title, { id: title, name: `[[${title}]]` });
     }
   }
 

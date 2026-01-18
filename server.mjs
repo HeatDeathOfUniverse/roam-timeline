@@ -109,17 +109,14 @@ app.post('/api/roam/categories', async (req, res) => {
 
 // Pages API endpoint - MUST come before /:graphName route
 app.post('/api/roam/pages', async (req, res) => {
-  console.log('>>> PAGES API ROUTE HIT <<<');
   const { graphName } = req.body;
 
   if (!graphName) {
     return res.status(400).json({ error: 'Graph name is required' });
   }
 
-  console.log('Fetching pages for graph:', graphName);
-
   // Query for all pages in the graph
-  const query = `[:find (pull ?page [:node/uid :node/title :block/string]) :where [?page :node/title]]`;
+  const query = `[:find (pull ?page [:node/uid :node/title]) :where [?page :node/title]]`;
 
   const body = JSON.stringify({ query, args: [] });
 
@@ -132,7 +129,6 @@ app.post('/api/roam/pages', async (req, res) => {
 
   try {
     const url = new URL(`https://api.roamresearch.com/api/graph/${graphName}/q`);
-    console.log('Trying:', url.hostname + url.pathname);
 
     const response = await new Promise((resolve, reject) => {
       const req = https.request({
@@ -150,8 +146,6 @@ app.post('/api/roam/pages', async (req, res) => {
       req.write(body);
       req.end();
     });
-
-    console.log('  Status:', response.status);
 
     if (response.status === 308 && response.headers.location) {
       const redirectUrl = new URL(response.headers.location);
@@ -173,24 +167,20 @@ app.post('/api/roam/pages', async (req, res) => {
       });
 
       if (redirectResponse.status === 200) {
-        const parsedData = JSON.parse(redirectResponse.data);
-        const pages = parsePages(parsedData);
-        console.log('  Found', pages.length, 'pages');
+        const parsed = JSON.parse(redirectResponse.data);
+        const pages = parsePages(parsed);
         return res.status(200).json({ pages });
       }
     }
 
     if (response.status === 200) {
-      const parsedData = JSON.parse(response.data);
-      const pages = parsePages(parsedData);
-      console.log('  Found', pages.length, 'pages');
+      const parsed = JSON.parse(response.data);
+      const pages = parsePages(parsed);
       return res.status(200).json({ pages });
     }
 
-    console.log('  Error:', response);
     res.status(response.status || 500).json({ error: 'Failed to fetch pages' });
   } catch (error) {
-    console.log('  Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -351,11 +341,10 @@ function parsePages(data) {
     const block = item[0];
     if (!block) continue;
 
-    let title = block[':node/title'] || block[':block/string'];
-    let uid = block[':node/uid'] || block[':block/uid'];
-
-    if (title && uid && !pageSet.has(title)) {
-      pageSet.set(title, { id: uid, name: `[[${title}]]` });
+    // For pages, :node/title is the unique identifier
+    const title = block[':node/title'];
+    if (title && !pageSet.has(title)) {
+      pageSet.set(title, { id: title, name: `[[${title}]]` });
     }
   }
 

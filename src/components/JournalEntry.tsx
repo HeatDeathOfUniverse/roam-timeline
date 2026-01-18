@@ -83,7 +83,13 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
           });
           if (pageResponse.ok) {
             const data = await pageResponse.json();
-            setPages(data.pages || []);
+            // Transform pages to SuggestionItem format
+            const pageItems: SuggestionItem[] = (data.pages || []).map((p: { id: string; name: string }) => ({
+              id: p.id,
+              name: p.name,
+              type: 'page' as const,
+            }));
+            setPages(pageItems);
           }
         } catch (e) {
           console.error('Failed to fetch pages:', e);
@@ -161,6 +167,20 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
 
   // Handle key down for # @ triggers
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Check for # or @ triggers - must handle before character is inserted
+    if (e.key === '#' || e.key === '@') {
+      e.preventDefault();
+      // Insert the trigger character
+      document.execCommand('insertText', false, e.key);
+      // Trigger suggestions with empty query to show all
+      const type = e.key === '#' ? 'tag' : 'page';
+      setSuggestionType(type);
+      filterSuggestions(type, '');
+      setShowSuggestions(true);
+      setSelectedIndex(0);
+      return;
+    }
+
     if (showSuggestions) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -184,37 +204,31 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
         setShowSuggestions(false);
         return;
       }
-    }
 
-    // Check for # or @ triggers
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
+      // Filter suggestions based on continued typing
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) return;
 
-    const range = selection.getRangeAt(0);
-    const textBefore = range.startContainer.textContent?.slice(0, range.startOffset) || '';
+        const range = selection.getRangeAt(0);
+        const textBefore = range.startContainer.textContent?.slice(0, range.startOffset) || '';
 
-    const hashMatch = textBefore.match(/#(\w*)$/);
-    if (hashMatch) {
-      const query = hashMatch[1];
-      setSuggestionType('tag');
-      filterSuggestions('tag', query);
-      setShowSuggestions(true);
-      setSelectedIndex(0);
-      return;
-    }
+        const hashMatch = textBefore.match(/#(\w*)$/);
+        if (hashMatch) {
+          const query = hashMatch[1];
+          filterSuggestions('tag', query);
+          setSelectedIndex(0);
+          return;
+        }
 
-    const atMatch = textBefore.match(/@(\w*)$/);
-    if (atMatch) {
-      const query = atMatch[1];
-      setSuggestionType('page');
-      filterSuggestions('page', query);
-      setShowSuggestions(true);
-      setSelectedIndex(0);
-      return;
-    }
-
-    if (showSuggestions) {
-      setShowSuggestions(false);
+        const atMatch = textBefore.match(/@(\w*)$/);
+        if (atMatch) {
+          const query = atMatch[1];
+          filterSuggestions('page', query);
+          setSelectedIndex(0);
+          return;
+        }
+      }
     }
   }, [showSuggestions, suggestions, selectedIndex, filterSuggestions]);
 
@@ -403,9 +417,43 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
 
         <div className="w-px h-6 bg-gray-600 mx-1" />
 
+        {/* Tag and Page trigger buttons */}
+        <button
+          type="button"
+          onClick={() => {
+            insertText('#');
+            // Trigger tag suggestions with empty query to show all
+            setSuggestionType('tag');
+            filterSuggestions('tag', '');
+            setShowSuggestions(true);
+            setSelectedIndex(0);
+          }}
+          className="p-1.5 rounded hover:bg-gray-600 text-blue-400 font-bold"
+          title="插入 # 选择标签"
+        >
+          #
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            insertText('@');
+            // Trigger page suggestions with empty query to show all
+            setSuggestionType('page');
+            filterSuggestions('page', '');
+            setShowSuggestions(true);
+            setSelectedIndex(0);
+          }}
+          className="p-1.5 rounded hover:bg-gray-600 text-green-400 font-bold"
+          title="插入 @ 选择页面"
+        >
+          @
+        </button>
+
+        <div className="w-px h-6 bg-gray-600 mx-1" />
+
         {/* Help text */}
         <span className="text-xs text-gray-500 ml-2">
-          输入 # 选标签，@ 选页面
+          点击 # 或 @ 按钮选择
         </span>
       </div>
 
