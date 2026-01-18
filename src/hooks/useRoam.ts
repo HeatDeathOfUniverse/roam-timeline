@@ -6,7 +6,7 @@ export interface Category {
 
 import { useState, useCallback } from 'react';
 import type { JournalEntry, RoamConfig } from '../types';
-import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle } from '../utils/formatter';
+import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle, getTomorrowPageTitle, parseDurationToMinutes, formatDurationFromMinutes, isCrossMidnight, timeToMinutes, minutesToTime } from '../utils/formatter';
 
 const BFF_API_BASE = '/api/roam';
 
@@ -223,46 +223,150 @@ export function useRoam() {
     return yesterdayEndTime;
   }, [getLastEntryEndTimeFromPage]);
 
+// 拆分跨天记录为多条记录
+interface SplitEntry {
+  startTime: string;
+  endTime: string;
+  duration: string;
+  content: string;
+  pageDateOffset: number; // 0 = 今天, 1 = 明天
+}
+
+function splitCrossDayEntry(
+  startTime: string,
+  endTime: string,
+  duration: string,
+  content: string
+): SplitEntry[] {
+  // 不跨天，直接返回一条记录
+  if (!isCrossMidnight(startTime, endTime)) {
+    return [{
+      startTime,
+      endTime,
+      duration,
+      content,
+      pageDateOffset: 0,
+    }];
+  }
+
+  // 跨天，拆分为两条记录
+  const totalMinutes = parseDurationToMinutes(duration);
+
+  // 计算今天部分的分钟数 (从 startTime 到 23:59)
+  const startMinutes = timeToMinutes(startTime);
+  const todayMinutes = (24 * 60 - 1) - startMinutes; // 到 23:59
+
+  // 计算明天部分的分钟数 (从 00:00 到 endTime)
+  const endMinutes = timeToMinutes(endTime);
+  const tomorrowMinutes = endMinutes;
+
+  const todayDuration = formatDurationFromMinutes(todayMinutes);
+  const tomorrowDuration = formatDurationFromMinutes(tomorrowMinutes);
+
+  return [
+    {
+      startTime,
+      endTime: '23:59',
+      duration: todayDuration,
+      content,
+      pageDateOffset: 0, // 今天
+    },
+    {
+      startTime: '00:00',
+      endTime,
+      duration: tomorrowDuration,
+      content,
+      pageDateOffset: 1, // 明天
+    },
+  ];
+}
+
+// 获取指定偏移量的页面标题
+function getPageTitleWithOffset(offset: number): string {
+  if (offset === 0) {
+    return generatePageTitle();
+  } else if (offset === 1) {
+    return getTomorrowPageTitle();
+  } else {
+    // 通用情况：计算偏移日期
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    const month = date.toLocaleString('en-US', { month: 'long' });
+    const day = date.getDate();
+    const suffix = getDaySuffix(day);
+    const year = date.getFullYear();
+    return `${month} ${day}${suffix}, ${year}`;
+  }
+}
+
+// 获取日期后缀
+function getDaySuffix(n: number): string {
+  if (n > 3 && n < 21) return 'th';
+  const last = n % 10;
+  if (last === 1) return 'st';
+  if (last === 2) return 'nd';
+  if (last === 3) return 'rd';
+  return 'th';
+}
+
   const addEntry = useCallback(async (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => {
     setIsLoading(true);
     setError(null);
     try {
-      const pageTitle = generatePageTitle();
-      const formattedText = formatTimeForRoam(entry as JournalEntry);
+      // 拆分跨天记录
+      const splitEntries = splitCrossDayEntry(
+        entry.startTime,
+        entry.endTime,
+        entry.duration,
+        entry.content
+      );
 
-      // 先查询页面上是否已存在 Timeline 块（按 string 匹配）
-      const findQuery = `[:find (pull ?b [:block/uid]) :where
-        [?p :node/title "${pageTitle}"]
-        [?b :block/page ?p]
-        [?b :block/string "Timeline"]]`;
+      // 对每条拆分后的记录执行插入
+      for (const splitEntry of splitEntries) {
+        const pageTitle = getPageTitleWithOffset(splitEntry.pageDateOffset);
+        const formattedText = formatTimeForRoam({
+          content: splitEntry.content,
+          startTime: splitEntry.startTime,
+          endTime: splitEntry.endTime,
+          duration: splitEntry.duration,
+        });
 
-      const findResult = await bffFetch('q', { query: findQuery });
-      const existingTimeline = findResult?.result?.[0]?.[0];
+        // 查询页面上是否已存在 Timeline 块
+        const findQuery = `[:find (pull ?b [:block/uid]) :where
+          [?p :node/title "${pageTitle}"]
+          [?b :block/page ?p]
+          [?b :block/string "Timeline"]]`;
 
-      let timelineUid: string;
+        const findResult = await bffFetch('q', { query: findQuery });
+        const existingTimeline = findResult?.result?.[0]?.[0];
 
-      if (existingTimeline) {
-        // 使用已存在的 Timeline 块的 UID
-        timelineUid = existingTimeline[':block/uid'];
-      } else {
-        // 创建新的 Timeline 块（使用本地时区）
-        const localDate = new Date();
-        const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
-        timelineUid = `timeline-${today}`;
+        let timelineUid: string;
+
+        if (existingTimeline) {
+          // 使用已存在的 Timeline 块的 UID
+          timelineUid = existingTimeline[':block/uid'];
+        } else {
+          // 创建新的 Timeline 块
+          // 计算实际的日期
+          const targetDate = new Date();
+          targetDate.setDate(targetDate.getDate() + splitEntry.pageDateOffset);
+          const today = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+          timelineUid = `timeline-${today}`;
+          await bffFetch('create-block', {
+            location: { 'page-title': pageTitle, order: 'last' },
+            block: { string: 'Timeline', uid: timelineUid },
+          });
+        }
+
+        // 插入条目
         await bffFetch('create-block', {
-          location: { 'page-title': pageTitle, order: 'last' },
-          block: { string: 'Timeline', uid: timelineUid },
+          location: { 'parent-uid': timelineUid, order: 'last' },
+          block: {
+            string: formattedText,
+            uid: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          },
         });
       }
-
-      // 插入条目
-      await bffFetch('create-block', {
-        location: { 'parent-uid': timelineUid, order: 'last' },
-        block: {
-          string: formattedText,
-          uid: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        },
-      });
 
       return true;
     } catch (err) {
