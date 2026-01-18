@@ -6,7 +6,7 @@ export interface Category {
 
 import { useState, useCallback } from 'react';
 import type { JournalEntry, RoamConfig } from '../types';
-import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle, getTomorrowPageTitle, parseDurationToMinutes, formatDurationFromMinutes, isCrossMidnight, timeToMinutes, minutesToTime } from '../utils/formatter';
+import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle, getTomorrowPageTitle, parseDurationToMinutes, formatDurationFromMinutes, isCrossMidnight, timeToMinutes } from '../utils/formatter';
 
 const BFF_API_BASE = '/api/roam';
 
@@ -250,8 +250,6 @@ function splitCrossDayEntry(
   }
 
   // 跨天，拆分为两条记录
-  const totalMinutes = parseDurationToMinutes(duration);
-
   // 计算今天部分的分钟数 (从 startTime 到 23:59)
   const startMinutes = timeToMinutes(startTime);
   const todayMinutes = (24 * 60 - 1) - startMinutes; // 到 23:59
