@@ -187,9 +187,10 @@ async function getTimelineEntries(
         if (newMatch) {
           const dur = parseDuration(newMatch[1].trim());
           const cat = extractCategories(newMatch[2]);
-          console.log(`  -> NEW FORMAT: dur=${dur}, cats=${JSON.stringify(cat)}`);
+          console.log(`  -> NEW FORMAT: dur=${dur}, content="${newMatch[2].substring(0, 30)}..."`);
           if (cat.length > 0) {
             entries.push({ content: newMatch[2], duration: dur, categories: cat });
+            console.log(`  >>> PUSHED: dur=${dur}, content="${newMatch[2].substring(0, 30)}..."`);
           }
           continue;
         }
@@ -200,9 +201,11 @@ async function getTimelineEntries(
           const durMatch = oldMatch[3].match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
           const dur = durMatch ? parseDuration(durMatch[1]) : 0;
           const cat = extractCategories(durMatch ? durMatch[2] : oldMatch[3]);
-          console.log(`  -> OLD FORMAT: dur=${dur}, cats=${JSON.stringify(cat)}`);
+          console.log(`  -> OLD FORMAT: dur=${dur}`);
           if (cat.length > 0) {
-            entries.push({ content: durMatch ? durMatch[2] : oldMatch[3], duration: dur, categories: cat });
+            const entryContent = durMatch ? durMatch[2] : oldMatch[3];
+            entries.push({ content: entryContent, duration: dur, categories: cat });
+            console.log(`  >>> PUSHED: dur=${dur}, content="${entryContent.substring(0, 30)}..."`);
           }
           continue;
         }
