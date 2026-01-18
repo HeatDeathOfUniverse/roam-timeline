@@ -14,6 +14,12 @@ interface StatsNode {
   children: StatsNode[];
 }
 
+interface TimelineEntry {
+  content: string;
+  duration: number;
+  categories: string[];
+}
+
 const ROAM_API_BASE = 'https://api.roamresearch.com/api/graph';
 
 export default async function handler(
@@ -60,17 +66,30 @@ export default async function handler(
     const categoriesResult = await fetchRoam(graphName, apiToken, categoriesQuery);
     const categories = parseCategories(categoriesResult);
 
-    // Step 2: For each category, query blocks that reference it
-    const categoryStats: Record<string, number> = {};
+    // Step 2: Get all timeline entries for the date range
+    const entries = await getTimelineEntries(graphName, apiToken, startDate, endDate);
 
-    const allCategories = flattenCategories(categories);
-    for (const cat of allCategories) {
-      const catDuration = await getCategoryDuration(graphName, apiToken, cat.name, startDate, endDate);
-      categoryStats[cat.name] = catDuration;
+    // Step 3: Build a map of all category paths
+    const categoryPaths = buildCategoryPathMap(categories);
+
+    // Step 4: For each entry, find matching categories and add duration
+    const categoryDurations: Record<string, number> = {};
+
+    for (const entry of entries) {
+      for (const catPath of entry.categories) {
+        // Add duration to this category and all its parents
+        let currentPath = catPath;
+        while (currentPath) {
+          categoryDurations[currentPath] = (categoryDurations[currentPath] || 0) + entry.duration;
+          // Move to parent
+          const lastSlash = currentPath.lastIndexOf('/');
+          currentPath = lastSlash > 0 ? currentPath.substring(0, lastSlash) : '';
+        }
+      }
     }
 
-    // Step 3: Aggregate into tree structure with parent durations
-    const statsTree = buildStatsTree(categories, categoryStats);
+    // Step 5: Build stats tree with durations
+    const statsTree = buildStatsTreeWithDurations(categories, categoryDurations);
 
     return response.status(200).json({ stats: statsTree });
   } catch (error) {
@@ -81,76 +100,68 @@ export default async function handler(
   }
 }
 
-// Helper function to flatten categories for querying
-function flattenCategories(categories: CategoryNode[], result: CategoryNode[] = []): CategoryNode[] {
-  for (const cat of categories) {
-    result.push(cat);
-    if (cat.children && cat.children.length > 0) {
-      flattenCategories(cat.children, result);
-    }
-  }
-  return result;
-}
-
-// Get duration for a specific category using reference query
-async function getCategoryDuration(
+// Get timeline entries from date range
+async function getTimelineEntries(
   graphName: string,
   apiToken: string,
-  categoryName: string,
   startDate?: string,
   endDate?: string
-): Promise<number> {
-  // Use the category name without brackets for the query
-  const catName = categoryName.replace(/\[\[|\]\]/g, '');
-
-  // Use month prefix matching for simplicity - this is more reliable than date comparisons
+): Promise<TimelineEntry[]> {
+  // Use month prefix for filtering
   const monthPrefix = startDate ? startDate.split(' ')[0] : 'January';
 
-  // Query blocks that reference this category page, filtered by month
-  const query = `[:find (pull ?entry [:block/string :block/order {:block/page [:node/title]}]) :where
-    [?cat :node/title "${catName}"]
-    [?entry :block/_refs ?cat]
-    [?entry :block/page ?page]
+  // Query all pages in the month, then get their Timeline entries
+  const query = `[:find (pull ?page [:node/title {:block/children [:block/string :block/order]}]) :where
     [?page :node/title ?title]
     [(clojure.string/starts-with? ?title "${monthPrefix}")]]`;
 
   const result = await fetchRoam(graphName, apiToken, query);
-  const entries = parseTimelineEntries(result);
+  const entries: TimelineEntry[] = [];
 
-  // Calculate total duration
-  let totalMinutes = 0;
-  for (const entry of entries) {
-    totalMinutes += entry.duration || 0;
-  }
+  const pages = result.result as Array<{ ':node/title': string; ':block/children': Array<{ ':block/string': string }> }>;
 
-  return totalMinutes;
-}
+  for (const page of pages) {
+    const pageTitle = page[':node/title'];
+    const children = page[':block/children'] || [];
 
-// Parse timeline entries and extract duration
-function parseTimelineEntries(data: { result?: unknown[] }): Array<{ duration: number }> {
-  const result = data.result;
-  if (!result || !Array.isArray(result)) {
-    return [];
-  }
+    for (const child of children) {
+      const content = child[':block/string'];
+      if (!content) continue;
 
-  const entries: Array<{ duration: number }> = [];
+      // Parse timeline format
+      const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
+      if (timeMatch) {
+        const duration = parseDuration(timeMatch[3]);
+        const entryContent = timeMatch[4];
 
-  for (const item of result) {
-    const block = (item as unknown[])[0] as Record<string, unknown>;
-    if (!block || !block[':block/string']) continue;
+        // Extract category tags from content
+        const categories = extractCategories(entryContent);
 
-    const content = block[':block/string'] as string;
-
-    // Parse time format: "HH:MM - HH:MM (**duration**) - content"
-    const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
-
-    if (timeMatch) {
-      const duration = parseDuration(timeMatch[3]);
-      entries.push({ duration });
+        entries.push({
+          content: entryContent,
+          duration,
+          categories
+        });
+      }
     }
   }
 
   return entries;
+}
+
+// Extract category tags from content
+function extractCategories(content: string): string[] {
+  const categories: string[] = [];
+
+  // Match #[[Category Name]] or #CategoryName patterns
+  const tagRegex = /#\[\[([^\]]+)\]\]/g;
+  let match;
+
+  while ((match = tagRegex.exec(content)) !== null) {
+    categories.push(match[1]);
+  }
+
+  return categories;
 }
 
 // Parse duration string like "39'" or "1h30'"
@@ -172,28 +183,53 @@ function parseDuration(durationStr: string): number {
   return totalMinutes;
 }
 
-// Build stats tree with parent durations
-function buildStatsTree(
+// Build a map of all category paths (including nested paths)
+function buildCategoryPathMap(categories: CategoryNode[], parentPath = ''): string[] {
+  const paths: string[] = [];
+
+  for (const cat of categories) {
+    const fullPath = parentPath ? `${parentPath}/${cat.name}` : cat.name;
+    // Store both with and without brackets
+    paths.push(fullPath.replace(/\[\[|\]\]/g, ''));
+    paths.push(fullPath);
+
+    if (cat.children && cat.children.length > 0) {
+      paths.push(...buildCategoryPathMap(cat.children, fullPath));
+    }
+  }
+
+  return paths;
+}
+
+// Build stats tree with durations
+function buildStatsTreeWithDurations(
   categories: CategoryNode[],
-  categoryStats: Record<string, number>,
-  parentDuration = 0
+  categoryDurations: Record<string, number>,
+  parentPath = ''
 ): StatsNode[] {
   const nodes: StatsNode[] = [];
 
   for (const cat of categories) {
-    const ownDuration = categoryStats[cat.name] || 0;
-    const totalDuration = ownDuration + parentDuration;
+    const fullPath = parentPath ? `${parentPath}/${cat.name}` : cat.name;
+    const fullPathWithoutBrackets = fullPath.replace(/\[\[|\]\]/g, '');
+
+    const ownDuration = categoryDurations[fullPathWithoutBrackets] || categoryDurations[fullPath] || 0;
 
     const node: StatsNode = {
       name: cat.name,
       ownDuration,
-      totalDuration,
+      totalDuration: ownDuration, // Will be updated with children's duration
       percentage: 0,
       children: [],
     };
 
     if (cat.children && cat.children.length > 0) {
-      node.children = buildStatsTree(cat.children, categoryStats, ownDuration);
+      node.children = buildStatsTreeWithDurations(cat.children, categoryDurations, fullPath);
+
+      // Calculate total duration = own + children's total
+      for (const child of node.children) {
+        node.totalDuration += child.totalDuration;
+      }
     }
 
     nodes.push(node);
