@@ -180,6 +180,8 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
+        // UNIQUE DEBUG MARKER - XOXOXO
+        console.log(`DEBUG_MARKER_START: "${content.substring(0, 50)}..."`);
         console.log(`Processing: "${content.substring(0, 60)}..."`);
 
         // Parse timeline format: "(**duration**) - content #category"
