@@ -178,25 +178,31 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
   const filterSuggestions = useCallback((type: 'tag' | 'page', query: string) => {
     let items = type === 'tag' ? categories : pages;
 
-    if (query.trim() && items.length > 0) {
-      // Filter the tree recursively
-      const filterTree = (nodes: SuggestionItem[]): SuggestionItem[] => {
-        return nodes
-          .map(node => {
-            // Check if this node matches
-            const nameMatch = node.name.toLowerCase().includes(query.toLowerCase());
-            // Recursively filter children
-            const filteredChildren = node.children ? filterTree(node.children) : [];
-            // Include if name matches or has matching children
-            if (nameMatch || filteredChildren.length > 0) {
-              // Only include children if there are any
-              return filteredChildren.length > 0 ? { ...node, children: filteredChildren } : { ...node };
-            }
-            return null;
-          })
-          .filter((n): n is NonNullable<typeof n> => n !== null);
-      };
-      items = filterTree(items);
+    if (items.length > 0) {
+      if (query.trim()) {
+        // Filter the tree recursively
+        const filterTree = (nodes: SuggestionItem[]): SuggestionItem[] => {
+          return nodes
+            .map(node => {
+              // Check if this node matches
+              const nameMatch = node.name.toLowerCase().includes(query.toLowerCase());
+              // Recursively filter children
+              const filteredChildren = node.children ? filterTree(node.children) : [];
+              // Include if name matches or has matching children
+              if (nameMatch || filteredChildren.length > 0) {
+                // Always include children (all children, not just matching ones) for context
+                const childrenToUse = node.children && node.children.length > 0 ? node.children : filteredChildren;
+                return { ...node, children: childrenToUse };
+              }
+              return null;
+            })
+            .filter((n): n is NonNullable<typeof n> => n !== null);
+        };
+        items = filterTree(items);
+      } else {
+        // Empty query - show all items with full children
+        items = categories;
+      }
     }
     setSuggestions(items);
   }, [categories, pages]);
