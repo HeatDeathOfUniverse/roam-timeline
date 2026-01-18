@@ -267,41 +267,28 @@ function splitCrossDayEntry(
       endTime: '23:59',
       duration: todayDuration,
       content,
-      pageDateOffset: 0, // 今天
+      pageDateOffset: -1, // 23:xx 属于昨天
     },
     {
       startTime: '00:00',
       endTime,
       duration: tomorrowDuration,
       content,
-      pageDateOffset: 1, // 明天
+      pageDateOffset: 0, // 00:xx 属于今天
     },
   ];
 }
 
 // 获取指定偏移量的页面标题
-function getPageTitleWithOffset(offset: number, startTime?: string): string {
-  let adjustedOffset = offset;
-
-  // 如果 startTime 是深夜时段（22:00-24:00），说明属于前一天，offset 减 1
-  // 如果 startTime 是凌晨时段（00:00-06:00），属于当天，offset 不变
-  if (startTime) {
-    const startMinutes = timeToMinutes(startTime);
-    if (startMinutes >= 22 * 60) {
-      // 深夜时段（22:00-24:00）属于前一天
-      adjustedOffset -= 1;
-    }
-    // 00:00-06:00 属于当天，adjustedOffset 不变
-  }
-
-  if (adjustedOffset === 0) {
+function getPageTitleWithOffset(offset: number): string {
+  if (offset === 0) {
     return generatePageTitle();
-  } else if (adjustedOffset === 1) {
+  } else if (offset === 1) {
     return getTomorrowPageTitle();
   } else {
     // 通用情况：计算偏移日期
     const date = new Date();
-    date.setDate(date.getDate() + adjustedOffset);
+    date.setDate(date.getDate() + offset);
     const month = date.toLocaleString('en-US', { month: 'long' });
     const day = date.getDate();
     const suffix = getDaySuffix(day);
@@ -334,7 +321,7 @@ function getDaySuffix(n: number): string {
 
       // 对每条拆分后的记录执行插入
       for (const splitEntry of splitEntries) {
-        const pageTitle = getPageTitleWithOffset(splitEntry.pageDateOffset, splitEntry.startTime);
+        const pageTitle = getPageTitleWithOffset(splitEntry.pageDateOffset);
         const formattedText = formatTimeForRoam({
           content: splitEntry.content,
           startTime: splitEntry.startTime,
