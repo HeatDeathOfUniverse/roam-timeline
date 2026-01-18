@@ -84,7 +84,7 @@ export default async function handler(
     logCategoryTree(categories);
 
     // Step 2: Get all timeline entries for the date range
-    const entries = await getTimelineEntries(graphName, apiToken, start, end);
+    const { entries, parseLog } = await getTimelineEntries(graphName, apiToken, start, end);
 
     console.log(`Processing ${entries.length} entries...`);
     for (const entry of entries) {
@@ -114,10 +114,11 @@ export default async function handler(
       categoriesCount: categories.length,
       entriesCount: entries.length,
       matchedCount,
-      codeMarker: 'UNIQUE_MARKER_20260118_V2',  // Verify code is updated
+      codeMarker: 'UNIQUE_MARKER_20260118_V2',
+      parseLog,  // Add parse log to debug response
       categoryDurations: Object.entries(categoryDurations),
       entries: entries.map(e => ({
-        content: e.content,  // Full content
+        content: e.content,
         duration: e.duration,
         categories: e.categories
       })),
@@ -143,8 +144,9 @@ async function getTimelineEntries(
   apiToken: string,
   startDate: Date,
   endDate: Date
-): Promise<TimelineEntry[]> {
+): Promise<{ entries: TimelineEntry[]; parseLog: string[] }> {
   const entries: TimelineEntry[] = [];
+  const parseLog: string[] = [];
 
   // For each day, query the timeline entries
   const current = new Date(startDate);
@@ -173,6 +175,7 @@ async function getTimelineEntries(
       }
 
       let entryWithCategoriesCount = 0;
+      const parseLog: string[] = [];
       for (const item of timelineData) {
         const childData = item[0];
         if (!childData) continue;
@@ -180,17 +183,14 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
-        console.log(`[NEW_CODE_123] Processing: "${content.substring(0, 50)}..."`);
-
         // Try to parse the new format: (**duration**) - content
         const newMatch = content.match(/^\(\*\*([^*]+)\*\*\)\s*-\s*(.+)$/);
         if (newMatch) {
           const dur = parseDuration(newMatch[1].trim());
           const cat = extractCategories(newMatch[2]);
-          console.log(`  -> NEW FORMAT: dur=${dur}, content="${newMatch[2].substring(0, 30)}..."`);
+          parseLog.push(`NEW: dur=${dur}, content="${newMatch[2].substring(0, 30)}..."`);
           if (cat.length > 0) {
             entries.push({ content: newMatch[2], duration: dur, categories: cat });
-            console.log(`  >>> PUSHED: dur=${dur}, content="${newMatch[2].substring(0, 30)}..."`);
           }
           continue;
         }
@@ -201,17 +201,18 @@ async function getTimelineEntries(
           const durMatch = oldMatch[3].match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
           const dur = durMatch ? parseDuration(durMatch[1]) : 0;
           const cat = extractCategories(durMatch ? durMatch[2] : oldMatch[3]);
-          console.log(`  -> OLD FORMAT: dur=${dur}`);
+          const entryContent = durMatch ? durMatch[2] : oldMatch[3];
+          parseLog.push(`OLD: dur=${dur}, content="${entryContent.substring(0, 30)}..."`);
           if (cat.length > 0) {
-            const entryContent = durMatch ? durMatch[2] : oldMatch[3];
             entries.push({ content: entryContent, duration: dur, categories: cat });
-            console.log(`  >>> PUSHED: dur=${dur}, content="${entryContent.substring(0, 30)}..."`);
           }
           continue;
         }
 
-        console.log(`  -> NO MATCH, SKIPPING`);
+        parseLog.push(`NONE: "${content.substring(0, 30)}..."`);
       }
+
+      parseLog.push(`Total entries pushed: ${entries.length}`);
     } catch (err) {
       // Skip days that don't exist (future dates, etc.)
       console.log(`Error for ${pageTitle}:`, err);
@@ -226,7 +227,7 @@ async function getTimelineEntries(
   if (entries.length === 0) {
     console.log('WARNING: No entries found! Check if the Timeline block exists on the page.');
   }
-  return entries;
+  return { entries, parseLog };
 }
 
 // Helper function to add duration to a category
