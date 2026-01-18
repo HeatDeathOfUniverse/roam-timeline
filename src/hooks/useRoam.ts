@@ -6,7 +6,7 @@ export interface Category {
 
 import { useState, useCallback } from 'react';
 import type { JournalEntry, RoamConfig } from '../types';
-import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle, getTomorrowPageTitle, parseDurationToMinutes, formatDurationFromMinutes, isCrossMidnight, timeToMinutes } from '../utils/formatter';
+import { formatTimeForRoam, generatePageTitle, getYesterdayPageTitle, getTomorrowPageTitle, formatDurationFromMinutes, isCrossMidnight, timeToMinutes } from '../utils/formatter';
 
 const BFF_API_BASE = '/api/roam';
 
