@@ -114,6 +114,10 @@ export default async function handler(
       categoriesCount: categories.length,
       entriesCount: entries.length,
       matchedCount,
+      rawEntries: timelineData.map((item: unknown) => {
+        const d = item as Array<{':block/string': string}>;
+        return d[0]?.[':block/string'] || 'null';
+      }),
       categoryDurations: Object.entries(categoryDurations),
       entries: entries.map(e => ({
         content: e.content.substring(0, 50),
