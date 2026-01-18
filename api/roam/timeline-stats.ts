@@ -75,26 +75,19 @@ export default async function handler(
 
     // Step 3: Build a map of all category paths
     const categoryPaths = buildCategoryPathMap(categories);
-    console.log('Categories tree:', JSON.stringify(categories, null, 2));
 
     // Step 4: For each entry, find matching categories and add duration
     const categoryDurations: Record<string, number> = {};
 
-    console.log(`Processing ${entries.length} timeline entries...`);
     for (const entry of entries) {
-      console.log(`Entry: "${entry.content.substring(0, 50)}..." categories: ${entry.categories.join(', ')}`);
       for (const catName of entry.categories) {
         // Find this category in the tree and add duration to it and all ancestors
-        const found = addDurationToCategory(categories, catName, entry.duration, categoryDurations);
-        console.log(`  -> Category "${catName}" found: ${found}`);
+        addDurationToCategory(categories, catName, entry.duration, categoryDurations);
       }
     }
 
-    console.log('Category durations:', JSON.stringify(categoryDurations, null, 2));
-
     // Step 5: Build stats tree with durations
     const statsTree = buildStatsTreeWithDurations(categories, categoryDurations);
-    console.log('Stats tree:', JSON.stringify(statsTree, null, 2));
 
     return response.status(200).json({ stats: statsTree });
   } catch (error) {

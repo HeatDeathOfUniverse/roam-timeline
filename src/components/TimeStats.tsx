@@ -110,15 +110,6 @@ export function TimeStats({ stats, isLoading, error, onRangeChange, currentRange
   };
 
   const totalDuration = stats ? calculateTotal(stats) : 0;
-  console.log('Total duration:', totalDuration, 'minutes');
-  for (const node of stats || []) {
-    console.log(`  ${node.name}: own=${node.ownDuration}, total=${node.totalDuration}, %=${node.percentage}`);
-    if (node.children) {
-      for (const child of node.children) {
-        console.log(`    ${child.name}: own=${child.ownDuration}, total=${child.totalDuration}, %=${child.percentage}`);
-      }
-    }
-  }
 
   if (error) {
     return (
