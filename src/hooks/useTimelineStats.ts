@@ -109,7 +109,8 @@ export function useTimelineStats(): UseTimelineStatsReturn {
 
       const addPercentages = (nodes: CategoryNode[]) => {
         for (const node of nodes) {
-          node.percentage = totalDuration > 0 ? Math.round((node.totalDuration / totalDuration) * 100) : 0;
+          // Calculate percentage based on ownDuration (direct time), not totalDuration (includes children)
+          node.percentage = totalDuration > 0 ? Math.round((node.ownDuration / totalDuration) * 100) : 0;
           if (node.children.length > 0) {
             addPercentages(node.children);
           }
