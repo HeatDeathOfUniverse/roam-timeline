@@ -75,6 +75,7 @@ export default async function handler(
 
     // Step 3: Build a map of all category paths
     const categoryPaths = buildCategoryPathMap(categories);
+    console.log('Categories tree:', JSON.stringify(categories, null, 2));
 
     // Step 4: For each entry, find matching categories and add duration
     const categoryDurations: Record<string, number> = {};
