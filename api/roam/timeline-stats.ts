@@ -129,6 +129,10 @@ async function getTimelineEntries(
       const result = await fetchRoam(graphName, apiToken, query);
       const timelineData = (result.result as Array<[Array<{':block/string': string}]>) || [];
 
+      if (timelineData.length > 0) {
+        console.log(`Found ${timelineData.length} entries for ${pageTitle}`);
+      }
+
       for (const item of timelineData) {
         const childData = item[0];
         if (!childData) continue;
@@ -154,13 +158,14 @@ async function getTimelineEntries(
       }
     } catch (err) {
       // Skip days that don't exist (future dates, etc.)
-      console.log(`No entries for ${pageTitle}`);
+      console.log(`Error for ${pageTitle}:`, err);
     }
 
     // Move to next day
     current.setDate(current.getDate() + 1);
   }
 
+  console.log(`Total timeline entries found: ${entries.length}`);
   return entries;
 }
 
