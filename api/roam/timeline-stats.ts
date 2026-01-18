@@ -143,8 +143,9 @@ async function getTimelineEntries(
         const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
         if (timeMatch) {
           // timeMatch[3] is "duration content" - extract duration from the start
+          // Duration format: "2h12'" or "12h30'" or "39'" or "1h" etc.
           const durationContent = timeMatch[3];
-          const durationMatch = durationContent.match(/^(\d+h\d+'|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
+          const durationMatch = durationContent.match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
           const duration = durationMatch ? parseDuration(durationMatch[1]) : 0;
           const entryContent = durationMatch ? durationMatch[2] : durationContent;
 
