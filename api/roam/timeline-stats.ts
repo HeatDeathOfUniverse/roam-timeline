@@ -163,7 +163,7 @@ async function getTimelineEntries(
   return entries;
 }
 
-// Helper function to add duration to a category and all its ancestors
+// Helper function to add duration to a category and its direct parent
 function addDurationToCategory(
   categories: CategoryNode[],
   catName: string,
@@ -179,21 +179,16 @@ function addDurationToCategory(
     // Check if this is the matching category (compare names without brackets)
     if (currentPathWithoutBrackets === catNameWithoutBrackets ||
         cat.name.replace(/\[\[|\]\]/g, '') === catNameWithoutBrackets) {
-      // Add duration to this category and ALL ancestors
-      const pathParts = currentPathWithoutBrackets.split('/');
-      let accumulatedPath = '';
-      for (const part of pathParts) {
-        accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
-        addDurationToPath(categoryDurations, accumulatedPath, duration);
+      // Add duration to this category
+      addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
+      addDurationToPath(categoryDurations, currentPath, duration);
+
+      // Also add to direct parent if exists
+      if (parentPath) {
+        addDurationToPath(categoryDurations, parentPath, duration);
+        addDurationToPath(categoryDurations, parentPath.replace(/\[\[|\]\]/g, ''), duration);
       }
-      // Also store with brackets for fallback matching
-      const pathPartsWithBrackets = currentPath.split('/');
-      accumulatedPath = '';
-      for (const part of pathPartsWithBrackets) {
-        accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
-        addDurationToPath(categoryDurations, accumulatedPath, duration);
-      }
-      return true; // Found and added
+      return true;
     }
 
     // Continue searching in children
