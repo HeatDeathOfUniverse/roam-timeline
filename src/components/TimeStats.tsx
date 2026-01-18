@@ -5,9 +5,10 @@ import { formatDurationCompact, calculatePercentage } from '../utils/dateUtils';
 interface StatsTreeNodeProps {
   node: CategoryNode;
   depth?: number;
+  totalDuration: number;
 }
 
-function StatsTreeNode({ node, depth = 0 }: StatsTreeNodeProps) {
+function StatsTreeNode({ node, depth = 0, totalDuration }: StatsTreeNodeProps) {
   const [isExpanded, setIsExpanded] = useState(depth < 2); // Auto-expand first 2 levels
   const hasChildren = node.children && node.children.length > 0;
 
@@ -18,9 +19,8 @@ function StatsTreeNode({ node, depth = 0 }: StatsTreeNodeProps) {
     }
   };
 
-  // Calculate percentage based on total duration
-  // The root "全部" node shows 100%
-  const displayPercentage = node.totalDuration > 0 ? calculatePercentage(node.totalDuration, node.totalDuration) : 0;
+  // Calculate percentage based on own duration vs total duration
+  const displayPercentage = node.ownDuration > 0 ? calculatePercentage(node.ownDuration, totalDuration) : 0;
 
   return (
     <div className="select-none">
@@ -68,6 +68,7 @@ function StatsTreeNode({ node, depth = 0 }: StatsTreeNodeProps) {
               key={child.name}
               node={child}
               depth={depth + 1}
+              totalDuration={totalDuration}
             />
           ))}
         </div>
@@ -96,11 +97,14 @@ export function TimeStats({ stats, isLoading, error, onRangeChange, currentRange
     onRangeChange(range);
   };
 
-  // Calculate total duration from all top-level categories
+  // Calculate total duration from all categories (including nested children)
   const calculateTotal = (nodes: CategoryNode[]): number => {
     let total = 0;
     for (const node of nodes) {
       total += node.ownDuration;
+      if (node.children && node.children.length > 0) {
+        total += calculateTotal(node.children);
+      }
     }
     return total;
   };
@@ -173,6 +177,7 @@ export function TimeStats({ stats, isLoading, error, onRangeChange, currentRange
           <StatsTreeNode
             key={node.name}
             node={node}
+            totalDuration={totalDuration}
           />
         ))}
       </div>
