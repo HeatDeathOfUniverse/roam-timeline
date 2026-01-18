@@ -179,21 +179,21 @@ function addDurationToCategory(
     // Check if this is the matching category (compare names without brackets)
     if (currentPathWithoutBrackets === catNameWithoutBrackets ||
         cat.name.replace(/\[\[|\]\]/g, '') === catNameWithoutBrackets) {
-      // Add duration to this category
+      // Add duration to this category (ownDuration)
       addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
-      addDurationToPath(categoryDurations, currentPath, duration);
 
-      // Also add to direct parent if exists
+      // Also add to direct parent if exists (parentPath is the direct parent)
       if (parentPath) {
         addDurationToPath(categoryDurations, parentPath, duration);
-        addDurationToPath(categoryDurations, parentPath.replace(/\[\[|\]\]/g, ''), duration);
       }
       return true;
     }
 
     // Continue searching in children
     if (cat.children && cat.children.length > 0) {
-      const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, currentPath);
+      // Pass only this node's path as the potential parent for children
+      const directParentPath = cat.name;
+      const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, directParentPath);
       if (found) {
         return true;
       }
