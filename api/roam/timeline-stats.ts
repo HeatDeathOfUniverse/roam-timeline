@@ -215,8 +215,10 @@ function addDurationToCategory(
   categoryDurations: Record<string, number>,
   parentPath = ''
 ): boolean {
+  // Define this outside the loop so we can use it in the error log
+  const catNameWithoutBrackets = catName.replace(/\[\[|\]\]/g, '');
+
   for (const cat of categories) {
-    const catNameWithoutBrackets = catName.replace(/\[\[|\]\]/g, '');
     const currentCatNameWithoutBrackets = cat.name.replace(/\[\[|\]\]/g, '');
 
     // Check if leaf category name matches (ignore parent path)
