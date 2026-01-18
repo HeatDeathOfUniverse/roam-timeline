@@ -179,27 +179,32 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
+        console.log(`Processing: "${content.substring(0, 60)}..."`);
+
         // Parse timeline format: "(**duration**) - content #category"
         // Duration can be like "2h12'" or "39'" or "1h30'" or "8h0'"
         // New format: (**duration**) - content #category
         // Regex: (**<duration>**) - <content>
         // Example: (**55'**) - 一边吃饭... #[[分类]]
         const newFormatMatch = content.match(/^\(\*\*([^*]+)\*\*\)\s*-\s*(.+)$/);
+        console.log(`  newFormatMatch: ${newFormatMatch ? 'MATCHED' : 'null'}`);
+
         if (newFormatMatch) {
           const durationStr = newFormatMatch[1].trim();
           const entryContent = newFormatMatch[2];
           const duration = parseDuration(durationStr);
 
-          console.log(`Parsed: durationStr="${durationStr}" -> ${duration}m, content="${entryContent.substring(0, 30)}..."`);
+          console.log(`    durationStr="${durationStr}" -> ${duration}m`);
+          console.log(`    entryContent="${entryContent.substring(0, 30)}..."`);
 
           // Extract category tags from content
           const categories = extractCategories(entryContent);
 
           if (categories.length > 0) {
-            console.log(`  -> categories: [${categories.join(', ')}]`);
+            console.log(`    -> categories: [${categories.join(', ')}]`);
             entryWithCategoriesCount++;
           } else {
-            console.log(`  NO CATEGORIES: "${entryContent.substring(0, 80)}..."`);
+            console.log(`    NO CATEGORIES`);
           }
 
           entries.push({
@@ -210,6 +215,8 @@ async function getTimelineEntries(
         } else {
           // Old format: "HH:MM - HH:MM duration content"
           const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
+          console.log(`  timeMatch: ${timeMatch ? 'MATCHED' : 'null'}`);
+
           if (timeMatch) {
             const durationContent = timeMatch[3];
             const durationMatch = durationContent.match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
@@ -219,10 +226,10 @@ async function getTimelineEntries(
             const categories = extractCategories(entryContent);
 
             if (categories.length > 0) {
-              console.log(`  Entry: "${entryContent.substring(0, 50)}..." -> categories: [${categories.join(', ')}], duration: ${duration}m`);
+              console.log(`    Entry: "${entryContent.substring(0, 50)}..." -> categories: [${categories.join(', ')}], duration: ${duration}m`);
               entryWithCategoriesCount++;
             } else {
-              console.log(`  NO CATEGORIES: "${entryContent.substring(0, 80)}..."`);
+              console.log(`    NO CATEGORIES: "${entryContent.substring(0, 80)}..."`);
             }
 
             entries.push({
