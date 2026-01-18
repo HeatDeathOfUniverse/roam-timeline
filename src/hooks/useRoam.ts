@@ -284,8 +284,14 @@ function getPageTitleWithOffset(offset: number, startTime?: string): string {
   let adjustedOffset = offset;
 
   // 如果 startTime 是深夜时段（22:00-24:00），说明属于前一天，offset 减 1
-  if (startTime && timeToMinutes(startTime) >= 22 * 60) {
-    adjustedOffset -= 1;
+  // 如果 startTime 是凌晨时段（00:00-06:00），属于当天，offset 不变
+  if (startTime) {
+    const startMinutes = timeToMinutes(startTime);
+    if (startMinutes >= 22 * 60) {
+      // 深夜时段（22:00-24:00）属于前一天
+      adjustedOffset -= 1;
+    }
+    // 00:00-06:00 属于当天，adjustedOffset 不变
   }
 
   if (adjustedOffset === 0) {
