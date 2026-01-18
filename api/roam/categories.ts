@@ -41,12 +41,8 @@ export default async function handler(
   }
 
   // Query for Time Categories page with full tree structure
-  // First get all blocks under Time Categories, then get their children recursively
-  const query = `[:find (pull ?block [
-    :block/uid
-    :block/string
-    :block/children
-  ]) :where
+  // Using recursive pull syntax to get nested children
+  const query = `[:find (pull ?block [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order]}]}]) :where
     [?page :node/title "Time Categories"]
     [?block :block/page ?page]]`;
 
