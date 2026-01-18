@@ -106,50 +106,48 @@ function parseCategories(data: { result?: unknown[] }): CategoryNode[] {
     return [];
   }
 
-  // Convert Roam blocks to category nodes
-  const nodes: CategoryNode[] = result.map((item: unknown[]) => {
-    const block = item[0 as keyof typeof item] as {
-      ':block/uid'?: string;
-      ':block/string'?: string;
-      ':block/children'?: unknown[];
-    } | undefined;
-    if (block && block[':block/uid'] && block[':block/string']) {
-      return {
-        id: block[':block/uid'],
-        name: block[':block/string'],
-        children: [],
-      };
-    }
-    return null;
-  }).filter((n): n is CategoryNode => n !== null);
-
-  // Build hierarchical structure from flat list
-  // Roam returns blocks in order, and children are embedded in :block/children
-  const buildTree = (blocks: typeof nodes): CategoryNode[] => {
-    const result: CategoryNode[] = [];
-
-    for (const block of blocks) {
-      if (block[':block/children' as keyof typeof block]) {
-        const childrenData = block[':block/children' as keyof typeof block] as unknown[];
-        const children = childrenData.map((child: unknown) => {
-          const c = child as { ':block/uid'?: string; ':block/string'?: string };
-          return {
-            id: c[':block/uid'] || '',
-            name: c[':block/string'] || '',
-            children: [],
-          };
-        }).filter(c => c.id && c.name);
-        block.children = children;
-      }
-      result.push({
-        id: block.id,
-        name: block.name,
-        children: block.children,
-      });
+  // Convert Roam blocks to category nodes with hierarchical structure
+  const buildNode = (block: Record<string, unknown>): CategoryNode | null => {
+    if (!block || !block[':block/uid'] || !block[':block/string']) {
+      return null;
     }
 
-    return result;
+    const node: CategoryNode = {
+      id: block[':block/uid'] as string,
+      name: block[':block/string'] as string,
+      children: [],
+    };
+
+    // Recursively build children from :block/children
+    const children = block[':block/children'];
+    if (children && Array.isArray(children)) {
+      node.children = children
+        .map((child) => buildNode(child as Record<string, unknown>))
+        .filter((n): n is CategoryNode => n !== null);
+    }
+
+    return node;
   };
 
-  return buildTree(nodes);
+  // Build all nodes first
+  const allNodes: CategoryNode[] = result
+    .map((item) => {
+      const block = (item as unknown[])[0] as Record<string, unknown>;
+      return buildNode(block);
+    })
+    .filter((n): n is CategoryNode => n !== null);
+
+  // Build hierarchical structure - children are already embedded by buildNode
+  // But we need to filter to only top-level nodes
+  const childUids = new Set<string>();
+  for (const node of allNodes) {
+    for (const child of node.children) {
+      childUids.add(child.id);
+    }
+  }
+
+  // Only return top-level nodes (those not appearing as children)
+  const topLevelNodes = allNodes.filter((node) => !childUids.has(node.id));
+
+  return topLevelNodes;
 }
