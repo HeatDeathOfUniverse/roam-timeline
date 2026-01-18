@@ -62,6 +62,8 @@ export default async function handler(
     const start = parseRoamDate(startDate || 'January 12th, 2026');
     const end = parseRoamDate(endDate || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
 
+    console.log('Fetching timeline stats from', start.toISOString(), 'to', end.toISOString());
+
     // Step 1: Get categories tree
     const categoriesQuery = `[:find (pull ?block [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order]}]}]) :where
       [?page :node/title "Time Categories"]
@@ -127,6 +129,7 @@ async function getTimelineEntries(
         console.log(`Found ${timelineData.length} entries for ${pageTitle}`);
       }
 
+      let entryWithCategoriesCount = 0;
       for (const item of timelineData) {
         const childData = item[0];
         if (!childData) continue;
@@ -135,13 +138,18 @@ async function getTimelineEntries(
         if (!content) continue;
 
         // Parse timeline format
-        const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
+        const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*(\*\*(.+?)\*\*)\s*-\s*([\s\S]*)$/);
         if (timeMatch) {
-          const duration = parseDuration(timeMatch[3]);
-          const entryContent = timeMatch[4];
+          const duration = parseDuration(timeMatch[4]);
+          const entryContent = timeMatch[5];
 
           // Extract category tags from content
           const categories = extractCategories(entryContent);
+
+          if (categories.length > 0) {
+            console.log(`  Entry: "${entryContent.substring(0, 50)}..." -> categories: [${categories.join(', ')}], duration: ${duration}m`);
+            entryWithCategoriesCount++;
+          }
 
           entries.push({
             content: entryContent,
@@ -149,6 +157,9 @@ async function getTimelineEntries(
             categories
           });
         }
+      }
+      if (entryWithCategoriesCount > 0) {
+        console.log(`  -> ${entryWithCategoriesCount} entries with categories for ${pageTitle}`);
       }
     } catch (err) {
       // Skip days that don't exist (future dates, etc.)
@@ -159,7 +170,8 @@ async function getTimelineEntries(
     current.setDate(current.getDate() + 1);
   }
 
-  console.log(`Total timeline entries found: ${entries.length}`);
+  const entriesWithCategories = entries.filter(e => e.categories.length > 0);
+  console.log(`Total timeline entries found: ${entries.length} (${entriesWithCategories.length} with categories)`);
   return entries;
 }
 
@@ -233,12 +245,22 @@ function parseRoamDate(dateStr: string): Date {
 function extractCategories(content: string): string[] {
   const categories: string[] = [];
 
-  // Match #[[Category Name]] or #CategoryName patterns
-  const tagRegex = /#\[\[([^\]]+)\]\]/g;
+  // Match #[[Category Name]] format
+  const bracketRegex = /#\[\[([^\]]+)\]\]/g;
   let match;
 
-  while ((match = tagRegex.exec(content)) !== null) {
+  while ((match = bracketRegex.exec(content)) !== null) {
     categories.push(match[1]);
+  }
+
+  // Also match #CategoryName format (without brackets)
+  const simpleRegex = /#([^\s#\[\]]+)/g;
+  while ((match = simpleRegex.exec(content)) !== null) {
+    const catName = match[1];
+    // Don't add if it already has brackets (was already captured)
+    if (!catName.includes('[[') && !catName.includes(']]')) {
+      categories.push(catName);
+    }
   }
 
   return categories;
