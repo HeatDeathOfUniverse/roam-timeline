@@ -87,6 +87,9 @@ export default async function handler(
     const entries = await getTimelineEntries(graphName, apiToken, start, end);
 
     console.log(`Processing ${entries.length} entries...`);
+    for (const entry of entries) {
+      console.log(`  Entry: "${entry.content.substring(0, 50)}..." (${entry.duration}m) categories: [${entry.categories.join(', ')}]`);
+    }
 
     // Step 3: Build a map of all category paths
     const categoryPaths = buildCategoryPathMap(categories);
@@ -144,6 +147,7 @@ async function getTimelineEntries(
 
     try {
       const result = await fetchRoam(graphName, apiToken, query);
+      console.log(`Query result for ${pageTitle}:`, JSON.stringify(result).substring(0, 500));
       const timelineData = (result.result as Array<[Array<{':block/string': string}]>) || [];
 
       if (timelineData.length > 0) {
@@ -202,6 +206,9 @@ async function getTimelineEntries(
 
   const entriesWithCategories = entries.filter(e => e.categories.length > 0);
   console.log(`Total timeline entries found: ${entries.length} (${entriesWithCategories.length} with categories)`);
+  if (entries.length === 0) {
+    console.log('WARNING: No entries found! Check if the Timeline block exists on the page.');
+  }
   return entries;
 }
 
