@@ -4,10 +4,33 @@ interface Props {
   entries: JournalEntry[];
 }
 
+// 将时间字符串转换为分钟数
+function timeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+// 计算记录的有效时间（用于排序）
+// 跨天记录：endTime < startTime 时，给 endTime 加上 24h
+function getEffectiveTime(startTime: string, endTime: string): number {
+  const startMin = timeToMinutes(startTime);
+  const endMin = timeToMinutes(endTime);
+
+  // 如果 endTime < startTime（跨天），给 endTime 加上 24h
+  // 这样 00:00 (跨天) 的权重是 1440，代表"明天的凌晨"
+  if (endMin < startMin) {
+    return endMin + 24 * 60;
+  }
+
+  return endMin;
+}
+
 export function Timeline({ entries }: Props) {
-  // 倒序排列：最近的时间在最上面
+  // 倒序排列：结束时间越晚越靠前
   const sortedEntries = [...entries].sort((a, b) => {
-    return b.startTime.localeCompare(a.startTime);
+    const aTime = getEffectiveTime(a.startTime, a.endTime);
+    const bTime = getEffectiveTime(b.startTime, b.endTime);
+    return bTime - aTime;
   });
 
   return (
