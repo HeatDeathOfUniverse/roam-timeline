@@ -199,13 +199,36 @@ async function getTimelineEntries(
         }
 
         // Try old format: HH:MM - HH:MM duration content
+        // Can be: "12:32 - 13:27 2h12' content" OR "12:32 - 13:27 (**55'**) - content"
         const oldMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
+        parseLog.push(`  OLD: ${oldMatch ? 'MATCH' : 'NO MATCH'}`);
         if (oldMatch) {
+          // Try to extract duration from the content after the time range
+          // Format 1: "2h12' content" or "55' content"
           const durMatch = oldMatch[3].match(/^(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
-          const dur = durMatch ? parseDuration(durMatch[1]) : 0;
-          const cat = extractCategories(durMatch ? durMatch[2] : oldMatch[3]);
-          const entryContent = durMatch ? durMatch[2] : oldMatch[3];
-          parseLog.push(`OLD: dur=${dur}, content="${entryContent.substring(0, 30)}..."`);
+          // Format 2: "(**55'**) - content" or "(**1h30'**) - content"
+          const durMatch2 = oldMatch[3].match(/^\(\*\*(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\*\*\)\s*-\s*(.+)$/);
+
+          let dur = 0;
+          let entryContent = oldMatch[3];
+
+          if (durMatch2) {
+            // Format: (**duration**) - content
+            dur = parseDuration(durMatch2[1]);
+            entryContent = durMatch2[2];
+            parseLog.push(`    DUR2: dur=${dur}, content="${entryContent.substring(0, 20)}..."`);
+          } else if (durMatch) {
+            // Format: duration content
+            dur = parseDuration(durMatch[1]);
+            entryContent = durMatch[2];
+            parseLog.push(`    DUR1: dur=${dur}, content="${entryContent.substring(0, 20)}..."`);
+          } else {
+            parseLog.push(`    NO DUR MATCH: "${oldMatch[3].substring(0, 30)}..."`);
+          }
+
+          const cat = extractCategories(entryContent);
+          parseLog.push(`    CAT: ${JSON.stringify(cat)}`);
+
           if (cat.length > 0) {
             entries.push({ content: entryContent, duration: dur, categories: cat });
           }
