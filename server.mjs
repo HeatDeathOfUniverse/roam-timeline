@@ -186,6 +186,219 @@ app.post('/api/roam/pages', async (req, res) => {
   }
 });
 
+// Timeline Stats API endpoint
+app.post('/api/roam/timeline-stats', async (req, res) => {
+  console.log('>>> TIMELINE STATS API ROUTE HIT <<<');
+  const { graphName, startDate, endDate } = req.body;
+
+  if (!graphName) {
+    return res.status(400).json({ error: 'Graph name is required' });
+  }
+
+  try {
+    // Step 1: Get categories tree
+    const categoriesQuery = `[:find (pull ?block [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order]}]}]) :where
+      [?page :node/title "Time Categories"]
+      [?block :block/page ?page]]`;
+
+    const categoriesResult = await fetchRoam(graphName, categoriesQuery);
+    const categories = parseCategories(categoriesResult);
+
+    // Step 2: For each category, query blocks that reference it
+    const categoryStats = {};
+
+    for (const cat of flattenCategories(categories)) {
+      const catName = cat.name.replace(/\[\[|\]\]/g, '');
+      const catDuration = await getCategoryDuration(graphName, cat.name, startDate, endDate);
+      categoryStats[cat.name] = catDuration;
+    }
+
+    // Step 3: Aggregate into tree structure with parent durations
+    const statsTree = buildStatsTree(categories, categoryStats);
+
+    res.status(200).json({ stats: statsTree });
+  } catch (error) {
+    console.log('  Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to flatten categories for querying
+function flattenCategories(categories, result = []) {
+  for (const cat of categories) {
+    result.push(cat);
+    if (cat.children && cat.children.length > 0) {
+      flattenCategories(cat.children, result);
+    }
+  }
+  return result;
+}
+
+// Get duration for a specific category using reference query
+async function getCategoryDuration(graphName, categoryName, startDate, endDate) {
+  // Parse dates to Roam format (e.g., "January 18th, 2026")
+  const startRoam = formatDateForRoam(new Date(startDate));
+  const endRoam = formatDateForRoam(new Date(endDate));
+
+  // Query blocks that reference this category page, filtered by date range
+  const query = `[:find (pull ?entry [:block/string :block/order {:block/page [:node/title]}]) :where
+    [?cat :node/title "${categoryName.replace('[[', '').replace(']]', '')}"]
+    [?entry :block/_refs ?cat]
+    [?entry :block/page ?page]
+    [?page :node/title ?title]
+    [(clojure.string/starts-with? ?title "${startRoam.split(' ')[0]}")]
+    [(>= ?title "${startRoam}")]
+    [(<= ?title "${endRoam}")]]`;
+
+  const result = await fetchRoam(graphName, query);
+  const entries = parseTimelineEntries(result);
+
+  // Calculate total duration
+  let totalMinutes = 0;
+  for (const entry of entries) {
+    totalMinutes += entry.duration || 0;
+  }
+
+  return totalMinutes;
+}
+
+// Parse timeline entries and extract duration
+function parseTimelineEntries(data) {
+  const result = data?.result;
+  if (!result || !Array.isArray(result)) {
+    return [];
+  }
+
+  const entries = [];
+
+  for (const item of result) {
+    const block = item[0];
+    if (!block || !block[':block/string']) continue;
+
+    const content = block[':block/string'];
+    const date = block[':block/page']?.[':node/title'] || '';
+
+    // Parse time format: "HH:MM - HH:MM (**duration**) - content"
+    const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
+
+    if (timeMatch) {
+      const duration = parseDuration(timeMatch[3]);
+      entries.push({
+        id: block[':block/uid'],
+        content: content,
+        startTime: timeMatch[1],
+        endTime: timeMatch[2],
+        duration: duration,
+        date: date
+      });
+    }
+  }
+
+  return entries;
+}
+
+// Parse duration string like "39'" or "1h30'"
+function parseDuration(durationStr) {
+  if (!durationStr) return 0;
+
+  let totalMinutes = 0;
+
+  // Match patterns like "1h30'" or "39'"
+  const hourMatch = durationStr.match(/(\d+)h/);
+  const minMatch = durationStr.match(/(\d+)'/);
+
+  if (hourMatch) {
+    totalMinutes += parseInt(hourMatch[1], 10) * 60;
+  }
+  if (minMatch) {
+    totalMinutes += parseInt(minMatch[1], 10);
+  }
+
+  return totalMinutes;
+}
+
+// Format date to Roam's format: "January 18th, 2026"
+function formatDateForRoam(date) {
+  const month = date.toLocaleString('en-US', { month: 'long' });
+  const day = date.getDate();
+  const year = date.getFullYear();
+
+  // Add ordinal suffix
+  let suffix = 'th';
+  if (day % 10 === 1 && day % 100 !== 11) suffix = 'st';
+  else if (day % 10 === 2 && day % 100 !== 12) suffix = 'nd';
+  else if (day % 10 === 3 && day % 100 !== 13) suffix = 'rd';
+
+  return `${month} ${day}${suffix}, ${year}`;
+}
+
+// Build stats tree with parent durations
+function buildStatsTree(categories, categoryStats, parentDuration = 0) {
+  const nodes = [];
+
+  for (const cat of categories) {
+    const ownDuration = categoryStats[cat.name] || 0;
+    const totalDuration = ownDuration + parentDuration;
+
+    const node = {
+      name: cat.name,
+      ownDuration: ownDuration,
+      totalDuration: totalDuration,
+      percentage: 0, // Will calculate after we know total
+      children: []
+    };
+
+    if (cat.children && cat.children.length > 0) {
+      node.children = buildStatsTree(cat.children, categoryStats, ownDuration);
+    }
+
+    nodes.push(node);
+  }
+
+  return nodes;
+}
+
+// Generic Roam fetch function with redirect handling
+async function fetchRoam(graphName, query) {
+  const body = JSON.stringify({ query, args: [] });
+
+  const headers = {
+    'Authorization': `Bearer ${ROAM_API_TOKEN}`,
+    'x-authorization': `Bearer ${ROAM_API_TOKEN}`,
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body)
+  };
+
+  const url = new URL(`https://api.roamresearch.com/api/graph/${graphName}/q`);
+  const response = await makeRequest(url, headers, body);
+
+  if (response.status === 200) {
+    return JSON.parse(response.data);
+  }
+
+  throw new Error(`Roam API error: ${response.status}`);
+}
+
+// Make HTTP request with redirect handling
+async function makeRequest(url, headers, body) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: url.pathname,
+      method: 'POST',
+      headers: headers
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, data }));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 app.post('/api/roam/:graphName', async (req, res) => {
   console.log('>>> API ROUTE HIT <<<');
   console.log('graphName:', req.params.graphName);

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push)",
+      "Bash(lsof:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run dev)",
+      "Bash(npm run build)",
+      "Bash(open -a \"Google Chrome\":*)",
+      "Bash(git push:*)",
+      "Bash(npm run server)",
+      "Bash(kill:*)",
+      "Bash(npm view:*)"
+    ]
+  }
+}

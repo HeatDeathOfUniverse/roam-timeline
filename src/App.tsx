@@ -3,6 +3,7 @@ import { useRoam } from './hooks/useRoam';
 import { JournalEntryForm } from './components/JournalEntry';
 import { Timeline } from './components/Timeline';
 import { Settings } from './components/Settings';
+import { StatsTab } from './components/StatsTab';
 import { FormatButton } from './components/FormatButton';
 import { generatePageTitle } from './utils/formatter';
 import type { JournalEntry } from './types';
@@ -10,7 +11,7 @@ import type { JournalEntry } from './types';
 function App() {
   const { isConfigured, addEntry, isLoading, getLastEntryEndTime, getTimelineEntries, createChildNode } = useRoam();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [activeTab, setActiveTab] = useState<'journal' | 'settings'>('journal');
+  const [activeTab, setActiveTab] = useState<'journal' | 'stats' | 'settings'>('journal');
   const [initialStartTime, setInitialStartTime] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
 
@@ -132,6 +133,14 @@ function App() {
           日记
         </button>
         <button
+          onClick={() => setActiveTab('stats')}
+          className={`flex-1 py-3 font-medium ${
+            activeTab === 'stats' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400'
+          }`}
+        >
+          统计
+        </button>
+        <button
           onClick={() => setActiveTab('settings')}
           className={`flex-1 py-3 font-medium ${
             activeTab === 'settings' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400'
@@ -163,6 +172,22 @@ function App() {
                   <FormatButton />
                 </div>
               </>
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-gray-400 mb-4">请先配置 Roam API</p>
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded"
+                >
+                  去设置
+                </button>
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'stats' ? (
+          <div className="space-y-4">
+            {isConfigured ? (
+              <StatsTab />
             ) : (
               <div className="text-center py-12">
                 <p className="text-gray-400 mb-4">请先配置 Roam API</p>
