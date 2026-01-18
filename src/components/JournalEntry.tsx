@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { JournalEntry as JournalEntryType } from '../types';
 import { formatDuration } from '../utils/formatter';
 import { uploadImage } from '../utils/imageUploader';
-import Fuse from 'fuse.js';
 
 interface SuggestionItem {
   id: string;
@@ -190,11 +189,12 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
             const filteredChildren = node.children ? filterTree(node.children) : [];
             // Include if name matches or has matching children
             if (nameMatch || filteredChildren.length > 0) {
-              return { ...node, children: filteredChildren };
+              // Only include children if there are any
+              return filteredChildren.length > 0 ? { ...node, children: filteredChildren } : { ...node };
             }
             return null;
           })
-          .filter((n): n is SuggestionItem => n !== null);
+          .filter((n): n is NonNullable<typeof n> => n !== null);
       };
       items = filterTree(items);
     }
