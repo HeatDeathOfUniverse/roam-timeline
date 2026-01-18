@@ -72,8 +72,21 @@ export default async function handler(
     const categoriesResult = await fetchRoam(graphName, apiToken, categoriesQuery);
     const categories = parseCategories(categoriesResult);
 
+    console.log(`Found ${categories.length} top-level categories`);
+    const logCategoryTree = (cats: CategoryNode[], depth = 0) => {
+      for (const cat of cats) {
+        console.log('  '.repeat(depth) + `- ${cat.name}`);
+        if (cat.children.length > 0) {
+          logCategoryTree(cat.children, depth + 1);
+        }
+      }
+    };
+    logCategoryTree(categories);
+
     // Step 2: Get all timeline entries for the date range
     const entries = await getTimelineEntries(graphName, apiToken, start, end);
+
+    console.log(`Processing ${entries.length} entries...`);
 
     // Step 3: Build a map of all category paths
     const categoryPaths = buildCategoryPathMap(categories);
@@ -81,15 +94,23 @@ export default async function handler(
     // Step 4: For each entry, find matching categories and add duration
     const categoryDurations: Record<string, number> = {};
 
+    let matchedCount = 0;
     for (const entry of entries) {
+      console.log(`Entry: "${entry.content.substring(0, 50)}..." (${entry.duration}m)`);
       for (const catName of entry.categories) {
-        // Find this category in the tree and add duration to it and all ancestors
-        addDurationToCategory(categories, catName, entry.duration, categoryDurations);
+        const result = addDurationToCategory(categories, catName, entry.duration, categoryDurations);
+        if (result) matchedCount++;
       }
     }
+    console.log(`Matched ${matchedCount} category assignments`);
 
     // Step 5: Build stats tree with durations
     const statsTree = buildStatsTreeWithDurations(categories, categoryDurations);
+
+    console.log('=== Final Stats ===');
+    for (const [path, mins] of Object.entries(categoryDurations)) {
+      console.log(`  ${path}: ${mins}m`);
+    }
 
     return response.status(200).json({ stats: statsTree });
   } catch (error) {
@@ -185,6 +206,8 @@ async function getTimelineEntries(
 }
 
 // Helper function to add duration to a category
+// Fix: Now matches by leaf category name, not full path
+// This allows short format tags like #睡觉 to match "Life/睡觉" in the tree
 function addDurationToCategory(
   categories: CategoryNode[],
   catName: string,
@@ -193,27 +216,29 @@ function addDurationToCategory(
   parentPath = ''
 ): boolean {
   for (const cat of categories) {
-    const currentPath = parentPath ? `${parentPath}/${cat.name}` : cat.name;
-    const currentPathWithoutBrackets = currentPath.replace(/\[\[|\]\]/g, '');
     const catNameWithoutBrackets = catName.replace(/\[\[|\]\]/g, '');
+    const currentCatNameWithoutBrackets = cat.name.replace(/\[\[|\]\]/g, '');
 
-    // Check if this is the matching category (compare names without brackets)
-    if (currentPathWithoutBrackets === catNameWithoutBrackets ||
-        cat.name.replace(/\[\[|\]\]/g, '') === catNameWithoutBrackets) {
-      // Add duration to this category (becomes its ownDuration)
-      // Parent's totalDuration will be calculated automatically in buildStatsTreeWithDurations
-      addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
+    // Check if leaf category name matches (ignore parent path)
+    if (currentCatNameWithoutBrackets === catNameWithoutBrackets) {
+      // Build full path and add duration
+      const fullPath = parentPath ? `${parentPath}/${cat.name}` : cat.name;
+      const fullPathWithoutBrackets = fullPath.replace(/\[\[|\]\]/g, '');
+      addDurationToPath(categoryDurations, fullPathWithoutBrackets, duration);
+      console.log(`✅ Matched "${catNameWithoutBrackets}" -> "${fullPathWithoutBrackets}" (+${duration}m)`);
       return true;
     }
 
     // Continue searching in children
     if (cat.children && cat.children.length > 0) {
-      const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, currentPath);
+      const fullPath = parentPath ? `${parentPath}/${cat.name}` : cat.name;
+      const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, fullPath);
       if (found) {
         return true;
       }
     }
   }
+  console.log(`❌ No match for "${catNameWithoutBrackets}"`);
   return false;
 }
 
