@@ -204,7 +204,7 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
       } else {
         // Empty query - show all items with full children
         // All top-level items are selectable when query is empty
-        items = categories.map(item => ({ ...item, selectable: true }));
+        items = (type === 'tag' ? categories : pages).map(item => ({ ...item, selectable: true }));
       }
     }
     setSuggestions(items);
