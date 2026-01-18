@@ -79,15 +79,21 @@ export default async function handler(
     // Step 4: For each entry, find matching categories and add duration
     const categoryDurations: Record<string, number> = {};
 
+    console.log(`Processing ${entries.length} timeline entries...`);
     for (const entry of entries) {
+      console.log(`Entry: "${entry.content.substring(0, 50)}..." categories: ${entry.categories.join(', ')}`);
       for (const catName of entry.categories) {
         // Find this category in the tree and add duration to it and all ancestors
-        addDurationToCategory(categories, catName, entry.duration, categoryDurations);
+        const found = addDurationToCategory(categories, catName, entry.duration, categoryDurations);
+        console.log(`  -> Category "${catName}" found: ${found}`);
       }
     }
 
+    console.log('Category durations:', JSON.stringify(categoryDurations, null, 2));
+
     // Step 5: Build stats tree with durations
     const statsTree = buildStatsTreeWithDurations(categories, categoryDurations);
+    console.log('Stats tree:', JSON.stringify(statsTree, null, 2));
 
     return response.status(200).json({ stats: statsTree });
   } catch (error) {
@@ -179,11 +185,20 @@ function addDurationToCategory(
     // Check if this is the matching category (compare names without brackets)
     if (currentPathWithoutBrackets === catNameWithoutBrackets ||
         cat.name.replace(/\[\[|\]\]/g, '') === catNameWithoutBrackets) {
-      // Add duration to this category (store by both with and without brackets)
-      addDurationToPath(categoryDurations, currentPath, duration);
-      addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
-      addDurationToPath(categoryDurations, cat.name, duration);
-      addDurationToPath(categoryDurations, catNameWithoutBrackets, duration);
+      // Add duration to this category and ALL ancestors
+      const pathParts = currentPathWithoutBrackets.split('/');
+      let accumulatedPath = '';
+      for (const part of pathParts) {
+        accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
+        addDurationToPath(categoryDurations, accumulatedPath, duration);
+      }
+      // Also store with brackets for fallback matching
+      const pathPartsWithBrackets = currentPath.split('/');
+      accumulatedPath = '';
+      for (const part of pathPartsWithBrackets) {
+        accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
+        addDurationToPath(categoryDurations, accumulatedPath, duration);
+      }
       return true; // Found and added
     }
 
@@ -191,9 +206,6 @@ function addDurationToCategory(
     if (cat.children && cat.children.length > 0) {
       const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, currentPath);
       if (found) {
-        // Also add duration to this parent category
-        addDurationToPath(categoryDurations, currentPath, duration);
-        addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
         return true;
       }
     }
@@ -396,14 +408,8 @@ function parseCategories(data: { result?: unknown[] }): CategoryNode[] {
     })
     .filter((n): n is CategoryNode => n !== null);
 
-  const childUids = new Set<string>();
-  for (const node of allNodes) {
-    for (const child of node.children) {
-      childUids.add(child.id);
-    }
-  }
-
-  const topLevelNodes = allNodes.filter((node) => !childUids.has(node.id));
+  // Filter out the "Time Categories" page block itself - we only want the child categories
+  const topLevelNodes = allNodes.filter(node => node.name !== 'Time Categories');
 
   return topLevelNodes;
 }
