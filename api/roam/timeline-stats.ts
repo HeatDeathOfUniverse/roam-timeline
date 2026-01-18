@@ -174,8 +174,6 @@ async function getTimelineEntries(
         console.log(`Found ${timelineData.length} entries for ${pageTitle}`);
       }
 
-      let entryWithCategoriesCount = 0;
-      const parseLog: string[] = [];
       for (const item of timelineData) {
         const childData = item[0];
         if (!childData) continue;
