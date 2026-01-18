@@ -229,16 +229,26 @@ export function useRoam() {
     try {
       const pageTitle = generatePageTitle();
       const formattedText = formatTimeForRoam(entry as JournalEntry);
-      const today = new Date().toISOString().split('T')[0];
-      const timelineUid = `timeline-${today}`;
 
-      // 先查询 Timeline 块是否已存在
-      const existsQuery = `[:find ?b :where [?b :block/uid "${timelineUid}"]]`;
-      const existsResult = await bffFetch('q', { query: existsQuery });
-      const timelineExists = existsResult?.result?.length > 0;
+      // 先查询页面上是否已存在 Timeline 块（按 string 匹配）
+      const findQuery = `[:find (pull ?b [:block/uid]) :where
+        [?p :node/title "${pageTitle}"]
+        [?b :block/page ?p]
+        [?b :block/string "Timeline"]]`;
 
-      // 只在 Timeline 不存在时创建
-      if (!timelineExists) {
+      const findResult = await bffFetch('q', { query: findQuery });
+      const existingTimeline = findResult?.result?.[0]?.[0];
+
+      let timelineUid: string;
+
+      if (existingTimeline) {
+        // 使用已存在的 Timeline 块的 UID
+        timelineUid = existingTimeline[':block/uid'];
+      } else {
+        // 创建新的 Timeline 块（使用本地时区）
+        const localDate = new Date();
+        const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
+        timelineUid = `timeline-${today}`;
         await bffFetch('create-block', {
           location: { 'page-title': pageTitle, order: 'last' },
           block: { string: 'Timeline', uid: timelineUid },
@@ -282,7 +292,9 @@ export function useRoam() {
     setIsLoading(true);
     setError(null);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // 使用本地时区获取今天日期
+      const localDate = new Date();
+      const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
       const timelineUid = `timeline-${today}`;
 
       await bffFetch('create-block', {
