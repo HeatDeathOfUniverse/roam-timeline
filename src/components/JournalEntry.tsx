@@ -190,9 +190,8 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
               const filteredChildren = node.children ? filterTree(node.children) : [];
               // Include if name matches or has matching children
               if (nameMatch || filteredChildren.length > 0) {
-                // Always include children (all children, not just matching ones) for context
-                const childrenToUse = node.children && node.children.length > 0 ? node.children : filteredChildren;
-                return { ...node, children: childrenToUse };
+                // Only include the filtered children, not all children
+                return { ...node, children: filteredChildren };
               }
               return null;
             })
@@ -255,8 +254,8 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
     }
 
     if (showSuggestions) {
-      // Calculate total items in tree
-      const totalItems = countTreeItems(suggestions.length > 0 ? suggestions : categories);
+      // Calculate total items in tree - use suggestions for consistency
+      const totalItems = countTreeItems(suggestions);
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -270,7 +269,7 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        const selectedItem = getItemByIndex(suggestions.length > 0 ? suggestions : categories, selectedIndex);
+        const selectedItem = getItemByIndex(suggestions, selectedIndex);
         if (selectedItem) {
           insertSuggestion(selectedItem);
           return;
