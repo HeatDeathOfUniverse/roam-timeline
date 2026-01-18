@@ -10,6 +10,7 @@ interface SuggestionItem {
   depth?: number; // For hierarchical display indentation
   children?: SuggestionItem[]; // Keep hierarchy for reference
   displayName?: string; // Display name with parent path for tags
+  selectable?: boolean; // Only directly matched nodes are selectable
 }
 
 // Get tag name from category name
@@ -190,8 +191,10 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
               const filteredChildren = node.children ? filterTree(node.children) : [];
               // Include if name matches or has matching children
               if (nameMatch || filteredChildren.length > 0) {
-                // Only include the filtered children, not all children
-                return { ...node, children: filteredChildren };
+                // Only directly matched nodes are selectable
+                // Parent nodes (with matching children but no direct match) are not selectable
+                const isSelectable = nameMatch;
+                return { ...node, children: filteredChildren, selectable: isSelectable };
               }
               return null;
             })
@@ -200,7 +203,8 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
         items = filterTree(items);
       } else {
         // Empty query - show all items with full children
-        items = categories;
+        // All top-level items are selectable when query is empty
+        items = categories.map(item => ({ ...item, selectable: true }));
       }
     }
     setSuggestions(items);
@@ -607,11 +611,14 @@ interface EntryItemProps {
   entry: JournalEntryType;
 }
 
-// Recursive function to count total items in tree for keyboard navigation
+// Recursive function to count selectable items in tree for keyboard navigation
 function countTreeItems(nodes: SuggestionItem[]): number {
   let count = 0;
   for (const node of nodes) {
-    count += 1;
+    // Only count selectable items
+    if (node.selectable !== false) {
+      count += 1;
+    }
     if (node.children && node.children.length > 0) {
       count += countTreeItems(node.children);
     }
@@ -619,15 +626,18 @@ function countTreeItems(nodes: SuggestionItem[]): number {
   return count;
 }
 
-// Get item by index in tree
+// Get selectable item by index in tree
 function getItemByIndex(nodes: SuggestionItem[], targetIndex: number): SuggestionItem | null {
   let currentIndex = 0;
 
   for (const node of nodes) {
-    if (currentIndex === targetIndex) {
-      return node;
+    // Skip non-selectable items
+    if (node.selectable !== false) {
+      if (currentIndex === targetIndex) {
+        return node;
+      }
+      currentIndex += 1;
     }
-    currentIndex += 1;
 
     if (node.children && node.children.length > 0) {
       const result = getItemByIndex(node.children, targetIndex);
@@ -651,27 +661,47 @@ function renderTree(
   let offset = currentOffset[0];
 
   for (const node of nodes) {
-    const itemIndex = offset;
-    offset += 1;
+    // Only increment offset for selectable items
+    const isSelectable = node.selectable !== false;
+    const itemIndex = isSelectable ? offset : -1;
+    if (isSelectable) {
+      offset += 1;
+    }
     const isSelected = itemIndex === selectedIndex;
 
     // Get display name with full path
     const displayName = node.name.replace(/\[\[|\]\]/g, '');
 
-    items.push(
-      <li key={node.id}>
-        <button
-          type="button"
-          onClick={() => onSelect(node)}
-          onMouseEnter={() => setSelectedIndex(itemIndex)}
-          className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${isSelected ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
-          style={{ paddingLeft: `${12 + level * 16}px` }}
-        >
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${node.type === 'tag' ? 'bg-blue-500' : 'bg-green-500'}`} />
-          <span className="flex-1 truncate">{displayName}</span>
-        </button>
-      </li>
-    );
+    if (isSelectable) {
+      // Render as interactive button
+      items.push(
+        <li key={node.id}>
+          <button
+            type="button"
+            onClick={() => onSelect(node)}
+            onMouseEnter={() => setSelectedIndex(itemIndex)}
+            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${isSelected ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+            style={{ paddingLeft: `${12 + level * 16}px` }}
+          >
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${node.type === 'tag' ? 'bg-blue-500' : 'bg-green-500'}`} />
+            <span className="flex-1 truncate">{displayName}</span>
+          </button>
+        </li>
+      );
+    } else {
+      // Render as non-interactive text
+      items.push(
+        <li key={node.id}>
+          <div
+            className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 text-gray-400"
+            style={{ paddingLeft: `${12 + level * 16}px` }}
+          >
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${node.type === 'tag' ? 'bg-blue-500' : 'bg-green-500'}`} />
+            <span className="flex-1 truncate">{displayName}</span>
+          </div>
+        </li>
+      );
+    }
 
     // Recursively render children
     if (node.children && node.children.length > 0) {
