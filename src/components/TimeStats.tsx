@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { CategoryNode } from '../hooks/useTimelineStats';
-import { formatDurationCompact, calculatePercentage } from '../utils/dateUtils';
+import { formatDurationCompact } from '../utils/dateUtils';
 
 interface StatsTreeNodeProps {
   node: CategoryNode;
