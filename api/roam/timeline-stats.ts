@@ -180,7 +180,8 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
-        console.log(`RAW_CONTENT: "${content}"`);
+        // VERIFICATION_MARKER_20260118_XYZ - If you see this, code is updated
+        console.log(`[VERIFIED] RAW_CONTENT: "${content.substring(0, 80)}..."`);
 
         // Parse timeline format: "(**duration**) - content #category"
         const newFormatMatch = content.match(/^\(\*\*([^*]+)\*\*\)\s*-\s*(.+)$/);
