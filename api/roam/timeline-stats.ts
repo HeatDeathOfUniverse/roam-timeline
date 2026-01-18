@@ -114,10 +114,10 @@ export default async function handler(
       categoriesCount: categories.length,
       entriesCount: entries.length,
       matchedCount,
-      // rawEntries: timelineData is inside getTimelineEntries function
+      codeMarker: 'UNIQUE_MARKER_20260118_V2',  // Verify code is updated
       categoryDurations: Object.entries(categoryDurations),
       entries: entries.map(e => ({
-        content: e.content.substring(0, 50),
+        content: e.content,  // Full content
         duration: e.duration,
         categories: e.categories
       })),
