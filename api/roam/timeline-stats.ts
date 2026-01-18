@@ -86,16 +86,6 @@ export default async function handler(
     // Step 2: Get all timeline entries for the date range
     const entries = await getTimelineEntries(graphName, apiToken, start, end);
 
-    const debugInfo: Record<string, unknown> = {
-      categoriesCount: categories.length,
-      entriesCount: entries.length,
-      entries: entries.map(e => ({
-        content: e.content.substring(0, 50),
-        duration: e.duration,
-        categories: e.categories
-      })),
-    };
-
     console.log(`Processing ${entries.length} entries...`);
     for (const entry of entries) {
       console.log(`  Entry: "${entry.content.substring(0, 50)}..." (${entry.duration}m) categories: [${entry.categories.join(', ')}]`);
@@ -123,6 +113,7 @@ export default async function handler(
     const debugInfo: Record<string, unknown> = {
       categoriesCount: categories.length,
       entriesCount: entries.length,
+      matchedCount,
       categoryDurations: Object.entries(categoryDurations),
     };
 
