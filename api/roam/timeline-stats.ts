@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 interface CategoryNode {
   id: string;
   name: string;
+  order: number;
   children: CategoryNode[];
 }
 
@@ -497,6 +498,7 @@ function parseCategories(data: { result?: unknown[] }): CategoryNode[] {
     const node: CategoryNode = {
       id: block[':block/uid'] as string,
       name: block[':block/string'] as string,
+      order: (block[':block/order'] as number) || 0,
       children: [],
     };
 
@@ -542,5 +544,10 @@ function parseCategories(data: { result?: unknown[] }): CategoryNode[] {
     node.name !== 'Time Categories' && !allChildUids.has(node.id)
   );
 
-  return topLevelNodes;
+  // 按用户定义的顺序排序
+  const sortedTopLevelNodes = topLevelNodes.sort((a, b) =>
+    (a.order || 0) - (b.order || 0)
+  );
+
+  return sortedTopLevelNodes;
 }
