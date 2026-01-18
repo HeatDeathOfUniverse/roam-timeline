@@ -115,6 +115,11 @@ export default async function handler(
       entriesCount: entries.length,
       matchedCount,
       categoryDurations: Object.entries(categoryDurations),
+      entries: entries.map(e => ({
+        content: e.content.substring(0, 50),
+        duration: e.duration,
+        categories: e.categories
+      })),
     };
 
     console.log('=== Final Stats ===');
