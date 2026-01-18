@@ -381,7 +381,13 @@ function parseCategories(data: { result?: unknown[] }): CategoryNode[] {
     return [];
   }
 
-  const buildNode = (block: Record<string, unknown>): CategoryNode | null => {
+  interface RawBlock {
+    ':block/uid': string;
+    ':block/string': string;
+    ':block/children'?: RawBlock[];
+  }
+
+  const buildNode = (block: RawBlock, depth = 0): CategoryNode | null => {
     if (!block || !block[':block/uid'] || !block[':block/string']) {
       return null;
     }
@@ -395,22 +401,44 @@ function parseCategories(data: { result?: unknown[] }): CategoryNode[] {
     const children = block[':block/children'];
     if (children && Array.isArray(children)) {
       node.children = children
-        .map((child) => buildNode(child as Record<string, unknown>))
+        .map((child) => buildNode(child, depth + 1))
         .filter((n): n is CategoryNode => n !== null);
     }
 
     return node;
   };
 
+  // Build all nodes from the result
   const allNodes: CategoryNode[] = result
     .map((item) => {
-      const block = (item as unknown[])[0] as Record<string, unknown>;
+      const block = (item as unknown[])[0] as RawBlock;
       return buildNode(block);
     })
     .filter((n): n is CategoryNode => n !== null);
 
-  // Filter out the "Time Categories" page block itself - we only want the child categories
-  const topLevelNodes = allNodes.filter(node => node.name !== 'Time Categories');
+  // Collect all child UIDs at all levels to identify which nodes are nested
+  const collectAllChildUids = (nodes: CategoryNode[]): Set<string> => {
+    const uids = new Set<string>();
+    for (const node of nodes) {
+      for (const child of node.children) {
+        uids.add(child.id);
+        // Also recurse to collect nested children
+        const nestedUids = collectAllChildUids([child]);
+        for (const uid of nestedUids) {
+          uids.add(uid);
+        }
+      }
+    }
+    return uids;
+  };
+
+  const allChildUids = collectAllChildUids(allNodes);
+
+  // Filter to only keep top-level nodes (nodes that are not children of any other node)
+  // Also filter out the "Time Categories" page itself if present
+  const topLevelNodes = allNodes.filter((node) =>
+    node.name !== 'Time Categories' && !allChildUids.has(node.id)
+  );
 
   return topLevelNodes;
 }
