@@ -244,26 +244,31 @@ function parseRoamDate(dateStr: string): Date {
 // Extract category tags from content
 function extractCategories(content: string): string[] {
   const categories: string[] = [];
+  const foundCategories = new Set<string>();
 
   // Match #[[Category Name]] format
   const bracketRegex = /#\[\[([^\]]+)\]\]/g;
   let match;
 
   while ((match = bracketRegex.exec(content)) !== null) {
-    categories.push(match[1]);
-  }
-
-  // Also match #CategoryName format (without brackets)
-  const simpleRegex = /#([^\s#\[\]]+)/g;
-  while ((match = simpleRegex.exec(content)) !== null) {
-    const catName = match[1];
-    // Don't add if it already has brackets (was already captured)
-    if (!catName.includes('[[') && !catName.includes(']]')) {
-      categories.push(catName);
+    const catName = match[1].trim();
+    if (catName && !foundCategories.has(catName)) {
+      foundCategories.add(catName);
     }
   }
 
-  return categories;
+  // Also match #CategoryName format (without brackets)
+  // Note: We use [^\s#]+ to allow slashes and other characters in category names
+  const simpleRegex = /#([^\s#]+)/g;
+  while ((match = simpleRegex.exec(content)) !== null) {
+    const catName = match[1].trim();
+    // Skip if this looks like a bracket expression (contains [[)
+    if (catName && !catName.includes('[[') && !foundCategories.has(catName)) {
+      foundCategories.add(catName);
+    }
+  }
+
+  return Array.from(foundCategories);
 }
 
 // Parse duration string like "39'" or "1h30'"
