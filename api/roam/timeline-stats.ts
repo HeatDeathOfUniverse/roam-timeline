@@ -58,6 +58,10 @@ export default async function handler(
   }
 
   try {
+    // Parse dates (they come in Roam format like "January 12th, 2026")
+    const start = parseRoamDate(startDate || 'January 12th, 2026');
+    const end = parseRoamDate(endDate || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
+
     // Step 1: Get categories tree
     const categoriesQuery = `[:find (pull ?block [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order]}]}]) :where
       [?page :node/title "Time Categories"]
@@ -67,7 +71,7 @@ export default async function handler(
     const categories = parseCategories(categoriesResult);
 
     // Step 2: Get all timeline entries for the date range
-    const entries = await getTimelineEntries(graphName, apiToken, startDate, endDate);
+    const entries = await getTimelineEntries(graphName, apiToken, start, end);
 
     // Step 3: Build a map of all category paths
     const categoryPaths = buildCategoryPathMap(categories);
@@ -104,51 +108,86 @@ export default async function handler(
 async function getTimelineEntries(
   graphName: string,
   apiToken: string,
-  startDate?: string,
-  endDate?: string
+  startDate: Date,
+  endDate: Date
 ): Promise<TimelineEntry[]> {
-  // Use month prefix for filtering
-  const monthPrefix = startDate ? startDate.split(' ')[0] : 'January';
-
-  // Query all Timeline entries for pages in the month
-  // First get page uids, then get timeline entries
-  const query = `[:find ?page ?uid ?title ?childString :where
-    [?page :node/title ?title]
-    [(clojure.string/starts-with? ?title "${monthPrefix}")]
-    [?b :block/page ?page]
-    [?b :block/string "Timeline"]
-    [?b :block/children ?child]
-    [?child :block/string ?childString]]`;
-
-  const result = await fetchRoam(graphName, apiToken, query);
   const entries: TimelineEntry[] = [];
 
-  const rows = (result.result as Array<[string, string, string, string]>) || [];
+  // For each day, query the timeline entries
+  const current = new Date(startDate);
+  while (current <= endDate) {
+    const pageTitle = formatRoamDate(current);
 
-  for (const row of rows) {
-    const [, , pageTitle, content] = row;
+    // Query timeline entries for this specific day
+    const query = `[:find (pull ?child [:block/string :block/order]) :where
+      [?p :node/title "${pageTitle}"]
+      [?b :block/page ?p]
+      [?b :block/string "Timeline"]
+      [?b :block/children ?child]]`;
 
-    if (!content) continue;
+    try {
+      const result = await fetchRoam(graphName, apiToken, query);
+      const timelineData = (result.result as Array<[Array<{':block/string': string}]>) || [];
 
-    // Parse timeline format
-    const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
-    if (timeMatch) {
-      const duration = parseDuration(timeMatch[3]);
-      const entryContent = timeMatch[4];
+      for (const item of timelineData) {
+        const childData = item[0];
+        if (!childData) continue;
 
-      // Extract category tags from content
-      const categories = extractCategories(entryContent);
+        const content = childData[':block/string'];
+        if (!content) continue;
 
-      entries.push({
-        content: entryContent,
-        duration,
-        categories
-      });
+        // Parse timeline format
+        const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*\(\*\*(.+?)\*\*\)\s*-\s*([\s\S]*)$/);
+        if (timeMatch) {
+          const duration = parseDuration(timeMatch[3]);
+          const entryContent = timeMatch[4];
+
+          // Extract category tags from content
+          const categories = extractCategories(entryContent);
+
+          entries.push({
+            content: entryContent,
+            duration,
+            categories
+          });
+        }
+      }
+    } catch (err) {
+      // Skip days that don't exist (future dates, etc.)
+      console.log(`No entries for ${pageTitle}`);
     }
+
+    // Move to next day
+    current.setDate(current.getDate() + 1);
   }
 
-  console.log(`Found ${entries.length} timeline entries for ${monthPrefix}`);
   return entries;
+}
+
+// Format date to Roam's format: "January 18th, 2026"
+function formatRoamDate(date: Date): string {
+  const month = date.toLocaleString('en-US', { month: 'long' });
+  const day = date.getDate();
+  const year = date.getFullYear();
+
+  let suffix = 'th';
+  if (day % 10 === 1 && day % 100 !== 11) suffix = 'st';
+  else if (day % 10 === 2 && day % 100 !== 12) suffix = 'nd';
+  else if (day % 10 === 3 && day % 100 !== 13) suffix = 'rd';
+
+  return `${month} ${day}${suffix}, ${year}`;
+}
+
+// Parse Roam date format: "January 12th, 2026" to Date object
+function parseRoamDate(dateStr: string): Date {
+  // Remove ordinal suffix (st, nd, rd, th)
+  const cleaned = dateStr.replace(/(\d+)(st|nd|rd|th)/, '$1');
+  const date = new Date(cleaned);
+  if (isNaN(date.getTime())) {
+    // Fallback to current date if parsing fails
+    return new Date();
+  }
+  return date;
 }
 
 // Extract category tags from content
