@@ -103,20 +103,16 @@ async function getCategoryDuration(
   // Use the category name without brackets for the query
   const catName = categoryName.replace(/\[\[|\]\]/g, '');
 
-  // Build date filter - use month prefix matching for simplicity
+  // Use month prefix matching for simplicity - this is more reliable than date comparisons
   const monthPrefix = startDate ? startDate.split(' ')[0] : 'January';
-  const startFilter = startDate ? `[(>= ?title "${startDate}")]` : '';
-  const endFilter = endDate ? `[(<= ?title "${endDate}")]` : '';
 
-  // Query blocks that reference this category page, filtered by date range
+  // Query blocks that reference this category page, filtered by month
   const query = `[:find (pull ?entry [:block/string :block/order {:block/page [:node/title]}]) :where
     [?cat :node/title "${catName}"]
     [?entry :block/_refs ?cat]
     [?entry :block/page ?page]
     [?page :node/title ?title]
-    [(clojure.string/starts-with? ?title "${monthPrefix}")]
-    ${startFilter}
-    ${endFilter}]`;
+    [(clojure.string/starts-with? ?title "${monthPrefix}")]]`;
 
   const result = await fetchRoam(graphName, apiToken, query);
   const entries = parseTimelineEntries(result);
