@@ -177,17 +177,21 @@ async function getTimelineEntries(
         // Parse timeline format: "(**duration**) - content #category"
         // Duration can be like "2h12'" or "39'" or "1h30'" or "8h0'"
         // New format: (**duration**) - content #category
-        const newFormatMatch = content.match(/^\(\*\*(\d+h\d+'|\d+h\d+|\d+'\d+h|\d+h|\d+')\*\*\)\s*-\s*(.+)$/);
+        // Regex: (**<duration>**) - <content>
+        // Example: (**55'**) - 一边吃饭... #[[分类]]
+        const newFormatMatch = content.match(/^\(\*\*([^*]+)\*\*\)\s*-\s*(.+)$/);
         if (newFormatMatch) {
-          const durationStr = newFormatMatch[1];
+          const durationStr = newFormatMatch[1].trim();
           const entryContent = newFormatMatch[2];
           const duration = parseDuration(durationStr);
+
+          console.log(`Parsed: durationStr="${durationStr}" -> ${duration}m, content="${entryContent.substring(0, 30)}..."`);
 
           // Extract category tags from content
           const categories = extractCategories(entryContent);
 
           if (categories.length > 0) {
-            console.log(`  Entry: "${entryContent.substring(0, 50)}..." -> categories: [${categories.join(', ')}], duration: ${duration}m`);
+            console.log(`  -> categories: [${categories.join(', ')}]`);
             entryWithCategoriesCount++;
           } else {
             console.log(`  NO CATEGORIES: "${entryContent.substring(0, 80)}..."`);
