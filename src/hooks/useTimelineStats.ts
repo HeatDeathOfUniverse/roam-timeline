@@ -45,6 +45,9 @@ export function useTimelineStats(): UseTimelineStatsReturn {
       let startDate: Date;
       const endDate = new Date(today);
 
+      console.log('Today:', today.toISOString());
+      console.log('Requested range:', range);
+
       switch (range) {
         case 'day':
           startDate = new Date(today);
@@ -61,6 +64,8 @@ export function useTimelineStats(): UseTimelineStatsReturn {
         default:
           startDate = new Date(today);
       }
+
+      console.log('Date range:', startDate.toISOString(), 'to', endDate.toISOString());
 
       // Format dates for Roam
       const formatDate = (d: Date) => {
