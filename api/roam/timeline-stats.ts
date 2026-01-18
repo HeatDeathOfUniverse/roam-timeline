@@ -181,8 +181,13 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
+        // Debug: show raw content with hex codes for first 50 chars
+        const hexPreview = content.slice(0, 50).split('').map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
+        console.log(`RAW: "${content.substring(0, 40)}..." [hex: ${hexPreview}]`);
+
         // Try to parse the new format: (**duration**) - content
         const newMatch = content.match(/^\(\*\*([^*]+)\*\*\)\s*-\s*(.+)$/);
+        console.log(`  NEW: ${newMatch ? 'MATCH' : 'NO MATCH'}`);
         if (newMatch) {
           const dur = parseDuration(newMatch[1].trim());
           const cat = extractCategories(newMatch[2]);
