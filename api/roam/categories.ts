@@ -1,5 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+interface CategoryNode {
+  id: string;
+  name: string;
+  children: CategoryNode[];
+}
+
 const ROAM_API_BASE = 'https://api.roamresearch.com/api/graph';
 
 export default async function handler(
@@ -34,8 +40,13 @@ export default async function handler(
     return response.status(400).json({ error: 'Graph name is required' });
   }
 
-  // Query for Time Categories page blocks
-  const query = `[:find (pull ?block [:block/uid :block/string]) :where
+  // Query for Time Categories page with full tree structure
+  // First get all blocks under Time Categories, then get their children recursively
+  const query = `[:find (pull ?block [
+    :block/uid
+    :block/string
+    :block/children
+  ]) :where
     [?page :node/title "Time Categories"]
     [?block :block/page ?page]]`;
 
@@ -89,23 +100,56 @@ export default async function handler(
   }
 }
 
-function parseCategories(data: { result?: unknown[] }): Array<{ id: string; name: string; children: never[] }> {
+function parseCategories(data: { result?: unknown[] }): CategoryNode[] {
   const result = data.result;
   if (!result || !Array.isArray(result)) {
     return [];
   }
 
-  return result
-    .map((item: unknown[]) => {
-      const block = item[0] as { ':block/uid'?: string; ':block/string'?: string };
-      if (block && block[':block/uid'] && block[':block/string']) {
-        return {
-          id: block[':block/uid'],
-          name: block[':block/string'],
-          children: [],
-        };
+  // Convert Roam blocks to category nodes
+  const nodes: CategoryNode[] = result.map((item: unknown[]) => {
+    const block = item[0 as keyof typeof item] as {
+      ':block/uid'?: string;
+      ':block/string'?: string;
+      ':block/children'?: unknown[];
+    } | undefined;
+    if (block && block[':block/uid'] && block[':block/string']) {
+      return {
+        id: block[':block/uid'],
+        name: block[':block/string'],
+        children: [],
+      };
+    }
+    return null;
+  }).filter((n): n is CategoryNode => n !== null);
+
+  // Build hierarchical structure from flat list
+  // Roam returns blocks in order, and children are embedded in :block/children
+  const buildTree = (blocks: typeof nodes): CategoryNode[] => {
+    const result: CategoryNode[] = [];
+
+    for (const block of blocks) {
+      if (block[':block/children' as keyof typeof block]) {
+        const childrenData = block[':block/children' as keyof typeof block] as unknown[];
+        const children = childrenData.map((child: unknown) => {
+          const c = child as { ':block/uid'?: string; ':block/string'?: string };
+          return {
+            id: c[':block/uid'] || '',
+            name: c[':block/string'] || '',
+            children: [],
+          };
+        }).filter(c => c.id && c.name);
+        block.children = children;
       }
-      return null;
-    })
-    .filter((item): item is { id: string; name: string; children: never[] } => item !== null);
+      result.push({
+        id: block.id,
+        name: block.name,
+        children: block.children,
+      });
+    }
+
+    return result;
+  };
+
+  return buildTree(nodes);
 }

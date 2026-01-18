@@ -8,11 +8,19 @@ interface SuggestionItem {
   id: string;
   name: string;
   type: 'tag' | 'page';
+  depth?: number; // For hierarchical display indentation
+  children?: SuggestionItem[]; // Keep hierarchy for reference
+  displayName?: string; // Display name with parent path for tags
 }
 
-// Get tag name from category name (remove [[ ]] and convert to lowercase)
+// Get tag name from category name
+// For Roam nested page tags like #[[p/xxx]], keep the brackets intact
 const getTagName = (name: string): string => {
-  return name.replace(/\[\[|\]\]/g, '').toLowerCase();
+  // If name already has [[ ]], keep it as-is for proper Roam tag format
+  if (name.includes('[[')) {
+    return name;
+  }
+  return name.replace(/\[\[|\]\]/g, '');
 };
 
 interface Props {
@@ -63,10 +71,12 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
           });
           if (catResponse.ok) {
             const data = await catResponse.json();
-            const items: SuggestionItem[] = (data.categories || []).map((c: { id: string; name: string }) => ({
+            // Keep hierarchical structure, will flatten for display
+            const items: SuggestionItem[] = (data.categories || []).map((c: { id: string; name: string; children?: unknown[] }) => ({
               id: c.id,
               name: c.name,
               type: 'tag' as const,
+              children: c.children ? (c.children as SuggestionItem[]) : undefined,
             }));
             setCategories(items);
           }
@@ -150,20 +160,77 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
     return editorRef.current?.innerText || '';
   }, []);
 
-  // Handle editor input
-  const handleInput = useCallback(() => {
-    setContent(getEditorText());
-  }, [getEditorText]);
+  // Flatten hierarchical categories to flat list with depth and parent path
+  const flattenCategories = useCallback((cats: SuggestionItem[], depth = 0, parentPath = ''): SuggestionItem[] => {
+    const result: SuggestionItem[] = [];
+    for (const cat of cats) {
+      // Create display name with parent path for non-root items
+      const displayName = parentPath ? `${parentPath} > ${cat.name.replace(/\[\[|\]\]/g, '')}` : cat.name.replace(/\[\[|\]\]/g, '');
+      result.push({ ...cat, depth, displayName });
+      if (cat.children && cat.children.length > 0) {
+        const currentPath = cat.name.replace(/\[\[|\]\]/g, '');
+        result.push(...flattenCategories(cat.children, depth + 1, currentPath));
+      }
+    }
+    return result;
+  }, []);
 
-  // Filter suggestions
+  // Filter suggestions (keeps hierarchy for tree display)
   const filterSuggestions = useCallback((type: 'tag' | 'page', query: string) => {
     let items = type === 'tag' ? categories : pages;
-    if (query.trim()) {
-      const fuse = new Fuse(items, { keys: ['name'], threshold: 0.4 });
-      items = fuse.search(query).map(r => r.item);
+
+    if (query.trim() && items.length > 0) {
+      // Filter the tree recursively
+      const filterTree = (nodes: SuggestionItem[]): SuggestionItem[] => {
+        return nodes
+          .map(node => {
+            // Check if this node matches
+            const nameMatch = node.name.toLowerCase().includes(query.toLowerCase());
+            // Recursively filter children
+            const filteredChildren = node.children ? filterTree(node.children) : [];
+            // Include if name matches or has matching children
+            if (nameMatch || filteredChildren.length > 0) {
+              return { ...node, children: filteredChildren };
+            }
+            return null;
+          })
+          .filter((n): n is SuggestionItem => n !== null);
+      };
+      items = filterTree(items);
     }
-    setSuggestions(items.slice(0, 10));
+    setSuggestions(items);
   }, [categories, pages]);
+
+  // Handle editor input
+  const handleInput = useCallback(() => {
+    const text = getEditorText();
+    setContent(text);
+
+    // Check if we're in a tag/page context
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
+    const textBefore = range.startContainer.textContent?.slice(0, range.startOffset) || '';
+
+    // Match # or @ context
+    const hashMatch = textBefore.match(/#([^\s]*)?$/);
+    const atMatch = textBefore.match(/@([^\s]*)?$/);
+
+    if (hashMatch) {
+      const query = hashMatch[1] || '';
+      filterSuggestions('tag', query);
+      setSuggestionType('tag');
+      setShowSuggestions(true);
+      setSelectedIndex(0);
+    } else if (atMatch) {
+      const query = atMatch[1] || '';
+      filterSuggestions('page', query);
+      setSuggestionType('page');
+      setShowSuggestions(true);
+      setSelectedIndex(0);
+    }
+  }, [getEditorText, filterSuggestions]);
 
   // Handle key down for # @ triggers
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -182,9 +249,12 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
     }
 
     if (showSuggestions) {
+      // Calculate total items in tree
+      const totalItems = countTreeItems(suggestions.length > 0 ? suggestions : categories);
+
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIndex(i => Math.min(i + 1, suggestions.length - 1));
+        setSelectedIndex(i => Math.min(i + 1, totalItems - 1));
         return;
       }
       if (e.key === 'ArrowUp') {
@@ -194,9 +264,9 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        if (suggestions[selectedIndex]) {
-          const item = suggestions[selectedIndex];
-          insertSuggestion(item);
+        const selectedItem = getItemByIndex(suggestions.length > 0 ? suggestions : categories, selectedIndex);
+        if (selectedItem) {
+          insertSuggestion(selectedItem);
           return;
         }
       }
@@ -206,6 +276,7 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
       }
 
       // Filter suggestions based on continued typing
+      // Support Unicode characters including Chinese
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
         const selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) return;
@@ -213,20 +284,32 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
         const range = selection.getRangeAt(0);
         const textBefore = range.startContainer.textContent?.slice(0, range.startOffset) || '';
 
-        const hashMatch = textBefore.match(/#(\w*)$/);
+        // Match # followed by any characters (including Chinese), or just # followed by space
+        // Use regex that allows optional content after #/@
+        const hashMatch = textBefore.match(/#([^\s]*)?$/);
         if (hashMatch) {
-          const query = hashMatch[1];
+          const query = hashMatch[1] || '';
           filterSuggestions('tag', query);
           setSelectedIndex(0);
           return;
         }
 
-        const atMatch = textBefore.match(/@(\w*)$/);
+        const atMatch = textBefore.match(/@([^\s]*)?$/);
         if (atMatch) {
-          const query = atMatch[1];
+          const query = atMatch[1] || '';
           filterSuggestions('page', query);
           setSelectedIndex(0);
           return;
+        }
+
+        // If we were in a tag/page context but now not, close suggestions
+        // This handles cases where user types something unrelated after the trigger
+        if (showSuggestions) {
+          const lastChars = textBefore.slice(-2);
+          if (!lastChars.startsWith('#') && !lastChars.startsWith('@') &&
+              !textBefore.includes('# ') && !textBefore.includes('@ ')) {
+            setShowSuggestions(false);
+          }
         }
       }
     }
@@ -242,7 +325,8 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
     const offset = range.startOffset;
 
     const textBefore = textNode.textContent?.slice(0, offset) || '';
-    const triggerMatch = textBefore.match(/[#@]\w*$/);
+    // Support Unicode including Chinese, stop at whitespace
+    const triggerMatch = textBefore.match(/[#@][^\s]*$/);
     if (triggerMatch) {
       const triggerStart = offset - triggerMatch[0].length;
       const triggerEnd = offset;
@@ -473,25 +557,26 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
         {showSuggestions && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setShowSuggestions(false)} />
-            <div ref={suggestionRef} className="absolute z-20 w-64 bg-gray-800 rounded-lg shadow-xl border border-gray-700 max-h-60 overflow-y-auto" style={{ bottom: '100%', left: 0, marginBottom: '4px' }}>
+            <div ref={suggestionRef} className="absolute z-20 w-64 bg-gray-800 rounded-lg shadow-xl border border-gray-700 max-h-96 overflow-y-auto" style={{ bottom: '100%', left: 0, marginBottom: '4px' }}>
               {suggestions.length === 0 ? (
                 <div className="p-3 text-sm text-gray-500 text-center">
                   未找到 {suggestionType === 'tag' ? '标签' : '页面'}
                 </div>
               ) : (
-                <ul>
-                  {suggestions.map((item, index) => (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => insertSuggestion(item)}
-                        className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${index === selectedIndex ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
-                      >
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.type === 'tag' ? 'bg-blue-500' : 'bg-green-500'}`} />
-                        <span className="flex-1 truncate">{item.name.replace(/\[\[|\]\]/g, '')}</span>
-                      </button>
-                    </li>
-                  ))}
+                <ul className="py-1">
+                  {/* Render hierarchical tree structure */}
+                  {suggestions.length > 0 ? (
+                    // Use suggestions (filtered tree) if available, else use categories
+                    renderTree(
+                      suggestions.length > 0 ? suggestions : categories,
+                      0,
+                      insertSuggestion,
+                      selectedIndex,
+                      setSelectedIndex
+                    )
+                  ) : (
+                    <li className="px-3 py-2 text-sm text-gray-500">未找到标签</li>
+                  )}
                 </ul>
               )}
             </div>
@@ -515,6 +600,84 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
 
 interface EntryItemProps {
   entry: JournalEntryType;
+}
+
+// Recursive function to count total items in tree for keyboard navigation
+function countTreeItems(nodes: SuggestionItem[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    count += 1;
+    if (node.children && node.children.length > 0) {
+      count += countTreeItems(node.children);
+    }
+  }
+  return count;
+}
+
+// Get item by index in tree
+function getItemByIndex(nodes: SuggestionItem[], targetIndex: number): SuggestionItem | null {
+  let currentIndex = 0;
+
+  for (const node of nodes) {
+    if (currentIndex === targetIndex) {
+      return node;
+    }
+    currentIndex += 1;
+
+    if (node.children && node.children.length > 0) {
+      const result = getItemByIndex(node.children, targetIndex);
+      if (result) return result;
+    }
+  }
+
+  return null;
+}
+
+// Render tree structure for suggestions
+function renderTree(
+  nodes: SuggestionItem[],
+  level: number,
+  onSelect: (item: SuggestionItem) => void,
+  selectedIndex: number,
+  setSelectedIndex: (index: number) => void,
+  currentOffset: number[] = [0]
+): React.ReactNode {
+  const items: React.ReactNode[] = [];
+  let offset = currentOffset[0];
+
+  for (const node of nodes) {
+    const itemIndex = offset;
+    offset += 1;
+    const isSelected = itemIndex === selectedIndex;
+
+    // Get display name with full path
+    const displayName = node.name.replace(/\[\[|\]\]/g, '');
+
+    items.push(
+      <li key={node.id}>
+        <button
+          type="button"
+          onClick={() => onSelect(node)}
+          onMouseEnter={() => setSelectedIndex(itemIndex)}
+          className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${isSelected ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+          style={{ paddingLeft: `${12 + level * 16}px` }}
+        >
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${node.type === 'tag' ? 'bg-blue-500' : 'bg-green-500'}`} />
+          <span className="flex-1 truncate">{displayName}</span>
+        </button>
+      </li>
+    );
+
+    // Recursively render children
+    if (node.children && node.children.length > 0) {
+      currentOffset[0] = offset;
+      const childItems = renderTree(node.children, level + 1, onSelect, selectedIndex, setSelectedIndex, currentOffset);
+      items.push(childItems as any);
+      offset = currentOffset[0];
+    }
+  }
+
+  return <>{items}</>;
 }
 
 export function EntryItem({ entry }: EntryItemProps) {

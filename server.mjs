@@ -29,7 +29,8 @@ app.post('/api/roam/categories', async (req, res) => {
 
   console.log('Fetching categories for graph:', graphName);
 
-  const query = `[:find (pull ?block [:block/uid :block/string]) :where
+  // First, get all blocks under Time Categories with their children refs
+  const query = `[:find (pull ?block [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order {:block/children [:block/uid :block/string :block/order]}]}]) :where
     [?page :node/title "Time Categories"]
     [?block :block/page ?page]]`;
 
@@ -314,19 +315,64 @@ function parseCategories(data) {
     return [];
   }
 
-  return result
-    .map((item) => {
-      const block = item[0];
-      if (block && block[':block/uid'] && block[':block/string']) {
-        return {
-          id: block[':block/uid'],
-          name: block[':block/string'],
-          children: [],
-        };
-      }
+  // Convert Roam blocks to category nodes with hierarchical structure
+  const buildNode = (block) => {
+    if (!block || !block[':block/uid'] || !block[':block/string']) {
       return null;
-    })
-    .filter(item => item !== null);
+    }
+
+    const node = {
+      id: block[':block/uid'],
+      name: block[':block/string'],
+      children: [],
+    };
+
+    // Recursively build children
+    const children = block[':block/children'];
+    if (children && Array.isArray(children)) {
+      node.children = children
+        .map(buildNode)
+        .filter(n => n !== null);
+    }
+
+    return node;
+  };
+
+  const allNodes = result
+    .map((item) => buildNode(item[0]))
+    .filter(n => n !== null);
+
+  // Find the direct children of Time Categories page
+  // These are the blocks whose parent is the Time Categories page (not another block)
+  // We need to identify the Time Categories page's db/id
+  const timeCategoriesPageBlocks = result
+    .map((item) => item[0])
+    .filter((block) => {
+      if (!block || !block[':block/uid'] || !block[':block/string']) return false;
+      // A direct child of Time Categories page has no parent block
+      // We can identify them by checking which blocks are NOT children of other blocks
+      // Or simpler: use :block/_children relationship to find parents
+      return true;
+    });
+
+  // Better approach: only return blocks that are direct children of Time Categories page
+  // We use :block/_children to find which blocks are children of the page
+  // Actually, let's just return the top-level nodes (those without a parent block)
+  // The Roam query returns all blocks under Time Categories, including nested ones
+  // We need to filter to only show the top-level ones with their children
+
+  // Get all block UIDs that appear as children
+  const childUids = new Set();
+  for (const node of allNodes) {
+    for (const child of node.children) {
+      childUids.add(child.id);
+    }
+  }
+
+  // Only return top-level nodes (those not appearing as children)
+  const topLevelNodes = allNodes.filter(node => !childUids.has(node.id));
+
+  return topLevelNodes;
 }
 
 function parsePages(data) {

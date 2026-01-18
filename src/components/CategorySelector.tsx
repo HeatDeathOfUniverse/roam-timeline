@@ -132,8 +132,12 @@ export function CategorySelector({ onSelect, disabled, searchQuery = '' }: Categ
   }, [searchQuery, categories, fuse]);
 
   // Get tag name from category
+  // For Roam nested page tags like #[[p/xxx]], keep the brackets intact
   const getTagName = (name: string): string => {
-    return name.replace(/\[\[|\]\]/g, '').toLowerCase();
+    if (name.includes('[[')) {
+      return name;
+    }
+    return name.replace(/\[\[|\]\]/g, '');
   };
 
   // Highlight matching parts
