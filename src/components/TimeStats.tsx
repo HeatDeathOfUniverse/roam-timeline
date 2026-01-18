@@ -19,26 +19,8 @@ function StatsTreeNode({ node, depth = 0, totalDuration }: StatsTreeNodeProps) {
     }
   };
 
-  // Calculate children duration and percentage
-  const childrenDuration = node.totalDuration - node.ownDuration;
-  const childrenPercentage = node.percentage - Math.round((node.ownDuration / totalDuration) * 100);
-
-  // Format duration display
-  const formatDurationDisplay = () => {
-    if (hasChildren) {
-      return `${formatDurationCompact(node.ownDuration)} + ${formatDurationCompact(childrenDuration)}`;
-    }
-    return formatDurationCompact(node.totalDuration);
-  };
-
-  // Format percentage display
-  const formatPercentageDisplay = () => {
-    if (hasChildren) {
-      const ownPercent = Math.round((node.ownDuration / totalDuration) * 100);
-      return `${ownPercent}% + ${childrenPercentage}%`;
-    }
-    return `${node.percentage}%`;
-  };
+  // Use percentage from props (already calculated in hook based on totalDuration)
+  const displayPercentage = node.percentage;
 
   return (
     <div className="select-none">
@@ -68,13 +50,13 @@ function StatsTreeNode({ node, depth = 0, totalDuration }: StatsTreeNodeProps) {
         </span>
 
         {/* Duration */}
-        <span className="w-32 text-right font-mono text-sm text-gray-600 mr-4">
-          {formatDurationDisplay()}
+        <span className="w-20 text-right font-mono text-sm text-gray-600 mr-4">
+          {formatDurationCompact(node.totalDuration)}
         </span>
 
         {/* Percentage */}
-        <span className="w-20 text-right text-sm text-gray-400">
-          {formatPercentageDisplay()}
+        <span className="w-12 text-right text-sm text-gray-400">
+          {displayPercentage}%
         </span>
       </div>
 
