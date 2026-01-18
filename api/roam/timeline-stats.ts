@@ -137,11 +137,16 @@ async function getTimelineEntries(
         const content = childData[':block/string'];
         if (!content) continue;
 
-        // Parse timeline format
-        const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*(\*\*(.+?)\*\*)\s*-\s*([\s\S]*)$/);
+        // Parse timeline format: "HH:MM - HH:MM duration content"
+        // Duration can be like "2h12'" or "39'" or "1h30'"
+        // First match time range, then extract duration and content
+        const timeMatch = content.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s+(.+)$/);
         if (timeMatch) {
-          const duration = parseDuration(timeMatch[4]);
-          const entryContent = timeMatch[5];
+          // timeMatch[3] is "duration content" - extract duration from the start
+          const durationContent = timeMatch[3];
+          const durationMatch = durationContent.match(/^(\d+h\d+'|\d+'\d+h|\d+h|\d+')\s*(.*)$/);
+          const duration = durationMatch ? parseDuration(durationMatch[1]) : 0;
+          const entryContent = durationMatch ? durationMatch[2] : durationContent;
 
           // Extract category tags from content
           const categories = extractCategories(entryContent);
