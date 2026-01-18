@@ -80,15 +80,9 @@ export default async function handler(
     const categoryDurations: Record<string, number> = {};
 
     for (const entry of entries) {
-      for (const catPath of entry.categories) {
-        // Add duration to this category and all its parents
-        let currentPath = catPath;
-        while (currentPath) {
-          categoryDurations[currentPath] = (categoryDurations[currentPath] || 0) + entry.duration;
-          // Move to parent
-          const lastSlash = currentPath.lastIndexOf('/');
-          currentPath = lastSlash > 0 ? currentPath.substring(0, lastSlash) : '';
-        }
+      for (const catName of entry.categories) {
+        // Find this category in the tree and add duration to it and all ancestors
+        addDurationToCategory(categories, catName, entry.duration, categoryDurations);
       }
     }
 
@@ -169,6 +163,51 @@ async function getTimelineEntries(
   return entries;
 }
 
+// Helper function to add duration to a category and all its ancestors
+function addDurationToCategory(
+  categories: CategoryNode[],
+  catName: string,
+  duration: number,
+  categoryDurations: Record<string, number>,
+  parentPath = ''
+): boolean {
+  for (const cat of categories) {
+    const currentPath = parentPath ? `${parentPath}/${cat.name}` : cat.name;
+    const currentPathWithoutBrackets = currentPath.replace(/\[\[|\]\]/g, '');
+    const catNameWithoutBrackets = catName.replace(/\[\[|\]\]/g, '');
+
+    // Check if this is the matching category (compare names without brackets)
+    if (currentPathWithoutBrackets === catNameWithoutBrackets ||
+        cat.name.replace(/\[\[|\]\]/g, '') === catNameWithoutBrackets) {
+      // Add duration to this category (store by both with and without brackets)
+      addDurationToPath(categoryDurations, currentPath, duration);
+      addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
+      addDurationToPath(categoryDurations, cat.name, duration);
+      addDurationToPath(categoryDurations, catNameWithoutBrackets, duration);
+      return true; // Found and added
+    }
+
+    // Continue searching in children
+    if (cat.children && cat.children.length > 0) {
+      const found = addDurationToCategory(cat.children, catName, duration, categoryDurations, currentPath);
+      if (found) {
+        // Also add duration to this parent category
+        addDurationToPath(categoryDurations, currentPath, duration);
+        addDurationToPath(categoryDurations, currentPathWithoutBrackets, duration);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Helper to safely add duration to a path key
+function addDurationToPath(durations: Record<string, number>, path: string, duration: number): void {
+  if (path) {
+    durations[path] = (durations[path] || 0) + duration;
+  }
+}
+
 // Format date to Roam's format: "January 18th, 2026"
 function formatRoamDate(date: Date): string {
   const month = date.toLocaleString('en-US', { month: 'long' });
@@ -187,12 +226,12 @@ function formatRoamDate(date: Date): string {
 function parseRoamDate(dateStr: string): Date {
   // Remove ordinal suffix (st, nd, rd, th)
   const cleaned = dateStr.replace(/(\d+)(st|nd|rd|th)/, '$1');
-  const date = new Date(cleaned);
-  if (isNaN(date.getTime())) {
+  const timestamp = Date.parse(cleaned);
+  if (isNaN(timestamp)) {
     // Fallback to current date if parsing fails
     return new Date();
   }
-  return date;
+  return new Date(timestamp);
 }
 
 // Extract category tags from content
