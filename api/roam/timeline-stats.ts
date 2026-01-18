@@ -86,6 +86,16 @@ export default async function handler(
     // Step 2: Get all timeline entries for the date range
     const entries = await getTimelineEntries(graphName, apiToken, start, end);
 
+    const debugInfo: Record<string, unknown> = {
+      categoriesCount: categories.length,
+      entriesCount: entries.length,
+      entries: entries.map(e => ({
+        content: e.content.substring(0, 50),
+        duration: e.duration,
+        categories: e.categories
+      })),
+    };
+
     console.log(`Processing ${entries.length} entries...`);
     for (const entry of entries) {
       console.log(`  Entry: "${entry.content.substring(0, 50)}..." (${entry.duration}m) categories: [${entry.categories.join(', ')}]`);
@@ -110,12 +120,18 @@ export default async function handler(
     // Step 5: Build stats tree with durations
     const statsTree = buildStatsTreeWithDurations(categories, categoryDurations);
 
+    const debugInfo: Record<string, unknown> = {
+      categoriesCount: categories.length,
+      entriesCount: entries.length,
+      categoryDurations: Object.entries(categoryDurations),
+    };
+
     console.log('=== Final Stats ===');
     for (const [path, mins] of Object.entries(categoryDurations)) {
       console.log(`  ${path}: ${mins}m`);
     }
 
-    return response.status(200).json({ stats: statsTree });
+    return response.status(200).json({ stats: statsTree, debug: debugInfo });
   } catch (error) {
     console.error('Failed to fetch timeline stats:', error);
     return response.status(500).json({
