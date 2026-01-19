@@ -41,6 +41,13 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
   // Editor ref
   const editorRef = useRef<HTMLDivElement>(null);
 
+  // Initialize editor content from draft on mount
+  useEffect(() => {
+    if (editorRef.current && content && editorRef.current.textContent?.trim() === '') {
+      editorRef.current.innerHTML = content;
+    }
+  }, [content]);
+
   // Suggestion states
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionType, setSuggestionType] = useState<'tag' | 'page'>('tag');
