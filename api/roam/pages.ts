@@ -118,7 +118,7 @@ function parsePages(data: RoamResult): Array<{ id: string; name: string }> {
     // :node/uid might not be returned for pages, so use title as id
     const title = block[':node/title'];
     if (title && !pageSet.has(title)) {
-      pageSet.set(title, { id: title, name: `[[${title}]]` });
+      pageSet.set(title, { id: title, name: title });
     }
   }
 
