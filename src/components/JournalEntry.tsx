@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { JournalEntry as JournalEntryType } from '../types';
 import { formatDuration } from '../utils/formatter';
 import { uploadImage } from '../utils/imageUploader';
+import { getDraft, saveDraft, clearDraft } from '../hooks/useJournalDraft';
 
 interface SuggestionItem {
   id: string;
@@ -32,7 +33,7 @@ interface Props {
 }
 
 export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initialStartTime, currentTime }: Props) {
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(() => getDraft());
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [, setTick] = useState(0);
@@ -214,6 +215,7 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
   const handleInput = useCallback(() => {
     const text = getEditorText();
     setContent(text);
+    saveDraft(text);
 
     // Check if we're in a tag/page context
     const selection = window.getSelection();
@@ -433,10 +435,29 @@ export function JournalEntryForm({ onSubmit, onCreateChildNode, isLoading, initi
     const duration = formatDuration(startTime, endTime);
     onSubmit({ content, startTime, endTime, duration });
     setContent('');
+    clearDraft();
     if (editorRef.current) {
       editorRef.current.innerText = '';
     }
   };
+
+  // Restore draft when page becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const saved = getDraft();
+        if (saved && saved !== content) {
+          setContent(saved);
+          if (editorRef.current) {
+            editorRef.current.innerHTML = saved;
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [content]);
 
   return (
     <form onSubmit={handleSubmit} className="p-4 bg-gray-800 rounded-lg space-y-3">
