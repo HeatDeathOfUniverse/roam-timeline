@@ -508,13 +508,11 @@ Output ONLY valid JSON starting with {{ and ending with }}}}."""
             print(f"  [{i}] UID={entry['uid']}: {entry['content'][:80]}...")
 
         # Collect today's entries that need formatting
-        # Check for both English () and Chinese （） brackets
-        today_entries_to_format = [
-            e for e in today_entries
-            if not re.search(r"[()（）]\*\*\d+\'\*\*[()（）]", e["content"])
-        ]
-        if today_entries_to_format:
-            print(f"[DEBUG] Today entries needing format: {len(today_entries_to_format)}")
+        # NOTE: We process ALL entries now, not just unformatted ones
+        # This allows for re-splitting entries with multiple time references
+        # and auto-tagging even already formatted entries
+        today_entries_to_format = today_entries
+        print(f"[DEBUG] Today entries to process (all): {len(today_entries_to_format)}")
 
         # Generate prompt for both days
         prompt = self.get_prompt_for_both_days(

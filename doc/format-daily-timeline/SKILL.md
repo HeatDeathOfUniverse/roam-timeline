@@ -41,6 +41,29 @@ Split timeline entries when they contain:
 - Sequential activities with time stamps
 - Complex narratives that span multiple time periods
 
+### Smart Re-Splitting (Even for Already Formatted Entries)
+
+**IMPORTANT**: Process ALL entries, even those already in standard format (`HH:MM - HH:MM (**duration**) - activity`). If an entry's activity description contains additional time references (like "9.15吃完饭", "10点半", "下午2点"), split it further.
+
+**Example:**
+```
+Input:  08:59 - 09:42 (**43'**) - 9.15吃完饭 然后看语鲸文章到现在
+Output:
+- 08:59 - 09:15 （**16'**） 吃完饭 #[[吃饭]]
+- 09:15 - 09:42 （**27'**） 看语鲸文章 #[[Reading]]
+```
+
+**Time Patterns to Detect in Activity Descriptions:**
+- Decimal: `1.06`, `1.20`, `9.15`, `10.30`
+- Chinese: `9点15`, `9点一刻`, `10点半`, `下午2点`, `下午2点10分`
+- Range: `8点半到9点`, `9:15到10:00`
+
+**Process:**
+1. Extract all time points from the activity description
+2. Use the entry's header time range as the overall bounds
+3. Split into sequential entries for each time segment
+4. Calculate duration for each segment
+
 ## Execution Workflow
 
 ### Step 1: Identify Existing Timeline Pattern
@@ -238,6 +261,53 @@ Look for the first formatted entry to understand the target format:
 - Today's entries start from yesterday's END time (`01:32`)
 - All time references in the narrative are extracted and converted to timeline entries
 
+## Auto-Tagging from Time Categories
+
+### Overview
+When processing timeline entries, automatically add appropriate category tags by analyzing the activity description. Read available categories from the `time categories` page (or similar category page in your Roam graph).
+
+### Category Sources
+Read category nodes from pages like:
+- `time categories`
+- `Categories`
+- `Tags`
+
+Common categories include: `#[[吃饭]]`, `#[[Reading]]`, `#[[Working]]`, `#[[Exercise]]`, `#[[Commuting]]`, `#[[Sleeping]]`, etc.
+
+### Tagging Rules
+1. **Match activity to category**: Analyze the activity description and match it to the most appropriate category
+2. **Add missing tags**: If an entry doesn't have a category tag but clearly belongs to one, add it
+3. **Preserve existing tags**: Keep any tags the user has already added
+4. **Use Roam format**: Add tags as `#[[Category Name]]` at the end of each entry
+
+### Examples
+```
+Input:  08:59 - 09:15 （**16'**） 吃完饭
+Output: 08:59 - 09:15 （**16'**） 吃完饭 #[[吃饭]]
+
+Input:  09:15 - 09:42 （**27'**） 看语鲸文章
+Output: 09:15 - 09:42 （**27'**） 看语鲸文章 #[[Reading]]
+
+Input:  12:30 - 13:30 （**1h00'**） 吃午饭 #[[吃饭]]
+Output: 12:30 - 13:30 （**1h00'**） 吃午饭 #[[吃饭]]  #[[Idle]]
+```
+
+### Category Keywords
+Map activities to categories based on keywords:
+- **吃饭/饮食**: 吃饭, 午餐, 晚餐, 早餐, 外卖, 做饭, 买菜
+- **Reading/阅读**: 读书, 阅读, 文章, 看书, 学习, 课程
+- **Working/工作**: 工作, 代码, 项目, 会议, 任务
+- **Exercise/运动**: 运动, 跑步, 健身, 骑车, 走路, 散步
+- **Commuting/通勤**: 骑车, 开车, 公交, 地铁, 上班, 公司
+- **Sleeping/睡眠**: 睡觉, 午睡, 休息, 躺着
+- **娱乐/Entertainment**: 游戏, 视频, 电影, 动漫, 小说
+
+### Output Format
+Add category tags at the end of each entry, separated by spaces:
+```
+HH:MM - HH:MM （**duration**） activity description #[[Category1]] #[[Category2]]
+```
+
 ## Auto-Fill Weekly Link
 
 ### Overview
@@ -328,3 +398,5 @@ After formatting, verify:
 - [ ] Summary entries (entries that summarize multiple time periods) have been DELETED after processing
 - [ ] Sub-items and formatting are preserved
 - [ ] Yesterday's entries remain unchanged (only today's journal is modified)
+- [ ] All entries have appropriate category tags from `time categories`
+- [ ] Entries with multiple time references have been split even if originally formatted
