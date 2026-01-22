@@ -389,7 +389,7 @@ These entries are in the Timeline block with UID: {today_timeline_uid}
 ## Standard Format
 All entries must follow this pattern:
 ```
-HH:MM - HH:MM (**duration**) - activity description
+HH:MM - HH:MM (**duration**) - activity description #[[Category]]
 ```
 
 ## CRITICAL RULES
@@ -407,6 +407,24 @@ HH:MM - HH:MM (**duration**) - activity description
    - Do NOT use UIDs - just output the new entries in correct order
    - The first entry has order: 0, second has order: 1, etc.
 
+4. **SMART RE-SPLIT EVEN FORMATTED ENTRIES**:
+   - Process ALL entries, even those already in standard format
+   - If an entry's activity description contains additional time references (like "9.15", "10点半", "13.10", "下午2点"), SPLIT IT into multiple entries
+   - Example:
+     - Input:  "12:23 - 14:34 (**2h11'**) - 刷抖音到13.10 午睡到13.36 玩到14. 然后出门14.18到工位"
+     - Output:
+       - "12:23 - 13:10 (**47'**) - 刷抖音 #[[🎬Entertainment]]"
+       - "13:10 - 13:36 (**26'**) - 午睡 #[[睡觉]]"
+       - "13:36 - 14:00 (**24'**) - 玩"
+       - "14:00 - 14:18 (**18'**) - 出门到工位 #[[🚇Commuting]]"
+       - "14:18 - 14:34 (**16'**) - 升级 skill #[[P/基于 roam 的计时分析工具]]"
+
+5. **AUTO-TAG ALL ENTRIES**:
+   - Add appropriate category tags to EVERY entry
+   - Use tags like: #[[吃饭]], #[[🎬Entertainment]], #[[睡觉]], #[[🚇Commuting]], #[[🧠Brain]], #[[wc]], #[[文档撰写]], #[[跑步]], #[[洗漱]], #[[Personal]], #[[P/...]]
+   - Analyze activity description and match to best category
+   - Put tags at the end: "HH:MM - HH:MM (**duration**) - activity #[[Category]]"
+
 ## Output Format
 
 Return JSON with exactly two keys: "yesterday" and "today"
@@ -415,18 +433,19 @@ Each entry needs: "string" (the formatted timeline entry) and "order" (position 
 ```json
 {{
   "yesterday": [
-    {{"string": "00:00 - 01:37 (**1h37'**) - activity description", "order": 0}},
-    {{"string": "01:37 - 02:33 (**56'**) - activity description", "order": 1}},
-    {{"string": "02:33 - 08:30 (**5h57'**) - activity description", "order": 2}}
+    {{"string": "00:00 - 01:37 (**1h37'**) - activity description #[[Category]]", "order": 0}},
+    {{"string": "01:37 - 02:33 (**56'**) - activity description #[[Category]]", "order": 1}},
+    {{"string": "02:33 - 08:30 (**5h57'**) - activity description #[[Category]]", "order": 2}}
   ],
   "today": [
-    {{"string": "08:30 - 09:00 (**30'**) - activity description", "order": 0}}
+    {{"string": "08:30 - 09:00 (**30'**) - activity description #[[Category]]", "order": 0}}
   ]
 }}
 ```
 
 Important: Output ALL entries in strict chronological order!
 The order field indicates the position (0, 1, 2, 3...) in the timeline.
+EVERY entry must have a category tag at the end!
 
 Output ONLY valid JSON starting with {{ and ending with }}}}."""
 
